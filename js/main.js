@@ -390,6 +390,7 @@
     window.setTimeout(() => {
       els.celebrateBanner.hidden = true;
       celebrating = false;
+      clearAllParticles();
       selectedId = null;
       for (const s of stars) {
         if (s.status === "selected") s.status = "idle";
@@ -410,6 +411,19 @@
     els.canvas.width = Math.floor(rect.width * dpr);
     els.canvas.height = Math.floor(rect.height * dpr);
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    clearParticleCanvas();
+  }
+
+  function clearParticleCanvas() {
+    ctx.save();
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.clearRect(0, 0, els.canvas.width, els.canvas.height);
+    ctx.restore();
+  }
+
+  function clearAllParticles() {
+    particles = [];
+    clearParticleCanvas();
   }
 
   function spawnParticlesAt(star, count, colors, speedMin, speedMax, lifeMin, lifeMax) {
@@ -459,9 +473,12 @@
   }
 
   function updateParticles(dt) {
-    if (!particles.length) return;
     const rect = els.sky.getBoundingClientRect();
-    ctx.clearRect(0, 0, rect.width, rect.height);
+    clearParticleCanvas();
+    if (!particles.length) return;
+
+    const bottomLimit = rect.height;
+    const sidePad = 12;
 
     particles = particles.filter((p) => {
       p.life += dt;
@@ -470,6 +487,10 @@
       p.vy += 90 * dt;
       const t = p.life / p.maxLife;
       if (t >= 1) return false;
+      // 枠外へ出た粒子は描画せず除去（下端への残留防止）
+      if (p.y > bottomLimit || p.y < -20 || p.x < -sidePad || p.x > rect.width + sidePad) {
+        return false;
+      }
 
       const alpha = 1 - t;
       ctx.globalAlpha = alpha;
@@ -481,9 +502,6 @@
     });
 
     ctx.globalAlpha = 1;
-    if (!particles.length) {
-      ctx.clearRect(0, 0, rect.width, rect.height);
-    }
   }
 
   let lastTs = 0;
