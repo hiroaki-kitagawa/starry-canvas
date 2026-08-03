@@ -15,6 +15,7 @@
   const CHEER_MAX_TOTAL_MS = 5_000;
   const CHEER_COOLDOWN_MS = 350;
   const LOG_MAX_ITEMS = 4;
+  const WISH_BONUS_PARTICLES = 14;
 
   const GROWTH_MILESTONES = [
     { id: "start", min: 0, text: "やさしい光がゆらぎはじめた…" },
@@ -50,6 +51,7 @@
   const els = {
     stars: document.getElementById("stars"),
     sky: document.getElementById("sky"),
+    meteors: document.getElementById("meteors"),
     canvas: document.getElementById("particles"),
     selectionLabel: document.getElementById("selectionLabel"),
     progressTrack: document.getElementById("progressTrack"),
@@ -59,6 +61,8 @@
     growBtn: document.getElementById("growBtn"),
     celebrateBanner: document.getElementById("celebrateBanner"),
     growthLog: document.getElementById("growthLog"),
+    wishCount: document.getElementById("wishCount"),
+    wishCounter: document.getElementById("wishCounter"),
   };
 
   const ctx = els.canvas.getContext("2d");
@@ -84,6 +88,23 @@
   let cheerBoostAppliedMs = 0;
   let lastCheerMs = 0;
   let cheerLogIndex = 0;
+  let wishFragments = 0;
+  let meteorTimerId = null;
+  let meteorSeq = 0;
+  const METEOR_CATCH_RADIUS = 48;
+
+  /** @type {Array<{
+   *   id: number,
+   *   el: HTMLButtonElement,
+   *   x: number,
+   *   y: number,
+   *   vx: number,
+   *   vy: number,
+   *   life: number,
+   *   maxLife: number,
+   *   caught: boolean,
+   * }>} */
+  let activeMeteors = [];
 
   /** @type {Array<{
    *   x: number, y: number, vx: number, vy: number,
@@ -107,6 +128,168 @@
       if (progress >= rule.min) return rule.phase;
     }
     return "initial";
+  }
+
+  function updateWishCounter() {
+    els.wishCount.textContent = String(wishFragments);
+  }
+
+  function gainWishFragment(amount = 1) {
+    wishFragments += amount;
+    updateWishCounter();
+    els.wishCounter.classList.remove("is-gain");
+    void els.wishCounter.offsetWidth;
+    els.wishCounter.classList.add("is-gain");
+  }
+
+  function clearMeteors() {
+    activeMeteors = [];
+    els.meteors.replaceChildren();
+  }
+
+  function scheduleNextMeteor() {
+    if (meteorTimerId != null) {
+      window.clearTimeout(meteorTimerId);
+    }
+    const delay = growingId
+      ? 6000 + Math.random() * 5000
+      : 11000 + Math.random() * 9000;
+    meteorTimerId = window.setTimeout(() => {
+      spawnMeteor();
+      scheduleNextMeteor();
+    }, delay);
+  }
+
+  function spawnMeteor() {
+    if (celebrating) return;
+    if (activeMeteors.filter((m) => !m.caught).length >= 2) return;
+
+    const rect = els.sky.getBoundingClientRect();
+    if (rect.width < 40 || rect.height < 40) return;
+
+    const fromLeft = Math.random() < 0.5;
+    const startYRatio = 0.08 + Math.random() * 0.45;
+    const endYRatio = Math.min(startYRatio + 0.18 + Math.random() * 0.28, 0.92);
+    const startX = (fromLeft ? -0.05 : 1.05) * rect.width;
+    const endX = (fromLeft ? 1.05 : -0.05) * rect.width;
+    const startY = startYRatio * rect.height;
+    const endY = endYRatio * rect.height;
+    const duration = (1.8 + Math.random() * 1.0) * 1.2 * 1.3 * 1.5;
+    const angle = (Math.atan2(endY - startY, endX - startX) * 180) / Math.PI;
+
+    const id = ++meteorSeq;
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "meteor";
+    btn.dataset.meteorId = String(id);
+    btn.setAttribute("aria-label", "流れ星（タップで願いのかけらをゲット）");
+    btn.style.setProperty("--angle", `${angle}deg`);
+    btn.style.left = `${(startX / rect.width) * 100}%`;
+    btn.style.top = `${(startY / rect.height) * 100}%`;
+
+    els.meteors.appendChild(btn);
+
+    activeMeteors.push({
+      id,
+      el: btn,
+      x: startX,
+      y: startY,
+      vx: (endX - startX) / duration,
+      vy: (endY - startY) / duration,
+      life: 0,
+      maxLife: duration,
+      caught: false,
+    });
+
+    ensureLoop();
+  }
+
+  function updateMeteors(dt) {
+    if (!activeMeteors.length) return;
+    const rect = els.sky.getBoundingClientRect();
+
+    activeMeteors = activeMeteors.filter((m) => {
+      if (m.caught) {
+        return m.el.isConnected;
+      }
+
+      m.life += dt;
+      m.x += m.vx * dt;
+      m.y += m.vy * dt;
+
+      if (m.life >= m.maxLife) {
+        m.el.remove();
+        return false;
+      }
+
+      const t = m.life / m.maxLife;
+      let opacity = 1;
+      if (t < 0.08) opacity = t / 0.08;
+      else if (t > 0.88) opacity = (1 - t) / 0.12;
+
+      m.el.style.left = `${(m.x / rect.width) * 100}%`;
+      m.el.style.top = `${(m.y / rect.height) * 100}%`;
+      m.el.style.opacity = String(Math.max(0, Math.min(1, opacity)));
+      return true;
+    });
+  }
+
+  function findMeteorAt(clientX, clientY) {
+    let best = null;
+    let bestDist = METEOR_CATCH_RADIUS;
+
+    for (const m of activeMeteors) {
+      if (m.caught || !m.el.isConnected) continue;
+      const r = m.el.getBoundingClientRect();
+      const cx = r.left + r.width / 2;
+      const cy = r.top + r.height / 2;
+      const dist = Math.hypot(clientX - cx, clientY - cy);
+      if (dist <= bestDist) {
+        bestDist = dist;
+        best = m;
+      }
+    }
+    return best;
+  }
+
+  function onSkyPointerDown(event) {
+    if (celebrating) return;
+    if (event.button != null && event.button !== 0) return;
+
+    const meteor = findMeteorAt(event.clientX, event.clientY);
+    if (!meteor) return;
+
+    event.preventDefault();
+    event.stopPropagation();
+    catchMeteor(meteor);
+  }
+
+  function catchMeteor(meteor) {
+    if (!meteor || meteor.caught || celebrating) return;
+
+    meteor.caught = true;
+    const rect = els.sky.getBoundingClientRect();
+    meteor.el.style.left = `${(meteor.x / rect.width) * 100}%`;
+    meteor.el.style.top = `${(meteor.y / rect.height) * 100}%`;
+    meteor.el.classList.add("is-caught");
+
+    gainWishFragment(1);
+    appendLog("流れ星をつかまえた！ 願いのかけら＋1", "wish");
+    spawnBurstAt(
+      meteor.x,
+      meteor.y,
+      18,
+      ["#ffe566", "#ffffff", "#7ec8ff", "#ffd6f5"],
+      40,
+      140,
+      0.35,
+      0.75
+    );
+
+    window.setTimeout(() => {
+      if (meteor.el.isConnected) meteor.el.remove();
+      activeMeteors = activeMeteors.filter((m) => m.id !== meteor.id);
+    }, 280);
   }
 
   function appendLog(text, kind = "") {
@@ -309,7 +492,7 @@
 
     els.selectionLabel.textContent =
       displayStar.status === "growing"
-        ? `星 ${displayStar.index} を育成中… タップで応援！`
+        ? `星 ${displayStar.index} を育成中… 応援＆流れ星をねらえ！`
         : `選択中: 星 ${displayStar.index}`;
 
     setProgress(displayStar.progress);
@@ -356,6 +539,7 @@
 
     syncAllStars();
     updatePanel();
+    scheduleNextMeteor();
     ensureLoop();
   }
 
@@ -384,8 +568,18 @@
   function celebrate(star) {
     celebrating = true;
     els.growBtn.disabled = true;
-    spawnParticles(star);
+    clearMeteors();
+
+    const usedWishes = wishFragments;
+    wishFragments = 0;
+    updateWishCounter();
+
+    spawnCelebrateParticles(star, usedWishes);
     els.celebrateBanner.hidden = false;
+
+    if (usedWishes > 0) {
+      appendLog(`願いのかけら ×${usedWishes} で祝福がきらめいた！`, "wish");
+    }
 
     window.setTimeout(() => {
       els.celebrateBanner.hidden = true;
@@ -397,6 +591,7 @@
       }
       syncAllStars();
       updatePanel();
+      scheduleNextMeteor();
 
       if (stars.every((s) => s.status === "completed")) {
         els.selectionLabel.textContent = "すべての星が完成しました！";
@@ -430,7 +625,10 @@
     const rect = els.sky.getBoundingClientRect();
     const cx = star.x * rect.width;
     const cy = star.y * rect.height;
+    spawnBurstAt(cx, cy, count, colors, speedMin, speedMax, lifeMin, lifeMax);
+  }
 
+  function spawnBurstAt(cx, cy, count, colors, speedMin, speedMax, lifeMin, lifeMax) {
     for (let i = 0; i < count; i++) {
       const angle = Math.random() * Math.PI * 2;
       const speed = speedMin + Math.random() * (speedMax - speedMin);
@@ -448,13 +646,14 @@
     ensureLoop();
   }
 
-  function spawnParticles(star) {
+  function spawnCelebrateParticles(star, wishBonus) {
+    const bonus = Math.max(0, wishBonus) * WISH_BONUS_PARTICLES;
     spawnParticlesAt(
       star,
-      70,
+      70 + bonus,
       ["#ffe566", "#c084fc", "#ffffff", "#7ec8ff", "#ffd6f5", "#b8f0c8"],
       40,
-      200,
+      200 + Math.min(80, wishBonus * 8),
       0.9,
       2.1
     );
@@ -526,8 +725,9 @@
     }
 
     updateParticles(dt);
+    updateMeteors(dt);
 
-    if (growingId || particles.length || celebrating) {
+    if (growingId || particles.length || celebrating || activeMeteors.length) {
       rafId = requestAnimationFrame(tick);
     } else {
       lastTs = 0;
@@ -545,10 +745,18 @@
     createStars();
     resizeCanvas();
     updatePanel();
+    updateWishCounter();
     appendLog("夜空の星を選んで、育成してみよう", "");
+    appendLog("流れ星をタップして、願いのかけらを集めよう", "wish");
 
     els.growBtn.addEventListener("click", startGrowth);
+    els.sky.addEventListener("pointerdown", onSkyPointerDown);
     window.addEventListener("resize", resizeCanvas);
+
+    meteorTimerId = window.setTimeout(() => {
+      spawnMeteor();
+      scheduleNextMeteor();
+    }, 2800 + Math.random() * 2200);
   }
 
   init();
