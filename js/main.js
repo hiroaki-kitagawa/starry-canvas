@@ -301,6 +301,8 @@
     while (els.growthLog.children.length > LOG_MAX_ITEMS) {
       els.growthLog.removeChild(els.growthLog.firstElementChild);
     }
+
+    els.growthLog.scrollTop = els.growthLog.scrollHeight;
   }
 
   function clearLog() {

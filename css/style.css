@@ -404,7 +404,6 @@ body {
 
 .growth-log {
   margin-top: 0.65rem;
-  min-height: 4.5rem;
 }
 
 .growth-log-title {
@@ -418,24 +417,25 @@ body {
 
 .growth-log-list {
   margin: 0;
-  padding: 0;
+  padding: 0 0 0.15rem;
   list-style: none;
   display: flex;
   flex-direction: column;
-  gap: 0.25rem;
-  max-height: 4.6rem;
-  overflow: hidden;
+  gap: 0.3rem;
+  max-height: 7.5rem;
+  overflow-x: hidden;
+  overflow-y: auto;
 }
 
 .growth-log-list li {
   font-size: 0.88rem;
+  line-height: 1.45;
   color: var(--text);
   opacity: 0;
   transform: translateY(4px);
   animation: log-in 0.35s ease-out forwards;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .growth-log-list li.is-cheer {
