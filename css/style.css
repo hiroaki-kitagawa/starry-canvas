@@ -307,6 +307,73 @@ body {
   color: var(--text-muted);
 }
 
+.growth-log {
+  margin-top: 0.65rem;
+  min-height: 4.5rem;
+}
+
+.growth-log-title {
+  margin: 0 0 0.3rem;
+  font-size: 0.75rem;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  font-family: var(--font-display);
+}
+
+.growth-log-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  max-height: 4.6rem;
+  overflow: hidden;
+}
+
+.growth-log-list li {
+  font-size: 0.88rem;
+  color: var(--text);
+  opacity: 0;
+  transform: translateY(4px);
+  animation: log-in 0.35s ease-out forwards;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.growth-log-list li.is-cheer {
+  color: #b8e0ff;
+}
+
+.growth-log-list li.is-milestone {
+  color: #ffe9a8;
+}
+
+@keyframes log-in {
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.star.is-cheered {
+  animation: cheer-pulse 0.35s ease-out;
+}
+
+@keyframes cheer-pulse {
+  0% {
+    transform: scale(1.35);
+  }
+  40% {
+    transform: scale(1.85);
+  }
+  100% {
+    transform: scale(1.45);
+  }
+}
+
 .grow-btn {
   flex-shrink: 0;
   min-width: 6.5rem;

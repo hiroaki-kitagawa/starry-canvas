@@ -11,6 +11,27 @@
     { min: 0, phase: "initial" },
   ];
   const CELEBRATE_MS = 2200;
+  const CHEER_BOOST_MS = 500;
+  const CHEER_MAX_TOTAL_MS = 5_000;
+  const CHEER_COOLDOWN_MS = 350;
+  const LOG_MAX_ITEMS = 4;
+
+  const GROWTH_MILESTONES = [
+    { id: "start", min: 0, text: "やさしい光がゆらぎはじめた…" },
+    { id: "yellow", min: 25, text: "あたたかい黄色に輝きだした！" },
+    { id: "blue", min: 50, text: "深い青の光が広がっていく…" },
+    { id: "red", min: 75, text: "熱い赤に色づいた！" },
+    { id: "purple", min: 80, text: "神秘的な紫の光が満ちていく…" },
+    { id: "complete", min: 100, text: "キャラクターが生まれた！" },
+  ];
+
+  const CHEER_LOG_LINES = [
+    "きらっと応えてくれた！",
+    "応援が届いたみたい…",
+    "星が少し元気になった！",
+    "ぴかり！ がんばってるよ",
+    "あなたの声援、受け取った！",
+  ];
 
   /** 重複しにくいプリセット座標（相対 0〜1） */
   const STAR_POSITIONS = [
@@ -37,6 +58,7 @@
     remainingTime: document.getElementById("remainingTime"),
     growBtn: document.getElementById("growBtn"),
     celebrateBanner: document.getElementById("celebrateBanner"),
+    growthLog: document.getElementById("growthLog"),
   };
 
   const ctx = els.canvas.getContext("2d");
@@ -51,6 +73,7 @@
    *   colorPhase: string,
    *   characterImageUrl: string,
    *   el: HTMLButtonElement,
+   *   loggedMilestones: Set<string>,
    * }>} */
   let stars = [];
   let selectedId = null;
@@ -58,6 +81,9 @@
   let growthStartMs = 0;
   let celebrating = false;
   let rafId = null;
+  let cheerBoostAppliedMs = 0;
+  let lastCheerMs = 0;
+  let cheerLogIndex = 0;
 
   /** @type {Array<{
    *   x: number, y: number, vx: number, vy: number,
@@ -81,6 +107,32 @@
       if (progress >= rule.min) return rule.phase;
     }
     return "initial";
+  }
+
+  function appendLog(text, kind = "") {
+    const li = document.createElement("li");
+    if (kind) li.classList.add(`is-${kind}`);
+    li.textContent = text;
+    els.growthLog.appendChild(li);
+
+    while (els.growthLog.children.length > LOG_MAX_ITEMS) {
+      els.growthLog.removeChild(els.growthLog.firstElementChild);
+    }
+  }
+
+  function clearLog() {
+    els.growthLog.replaceChildren();
+  }
+
+  function maybeLogMilestones(star) {
+    for (const milestone of GROWTH_MILESTONES) {
+      if (star.progress < milestone.min) continue;
+      if (star.loggedMilestones.has(milestone.id)) continue;
+      // start は育成開始時に明示的に出す
+      if (milestone.id === "start") continue;
+      star.loggedMilestones.add(milestone.id);
+      appendLog(milestone.text, "milestone");
+    }
   }
 
   function createPlaceholderSvg(index) {
@@ -131,6 +183,7 @@
         colorPhase: "initial",
         characterImageUrl: `assets/characters/star-${pad2(index)}.png`,
         el: btn,
+        loggedMilestones: new Set(),
       };
     });
   }
@@ -141,10 +194,15 @@
 
   function onStarClick(id) {
     if (celebrating) return;
-    if (growingId) return;
 
     const star = findStar(id);
     if (!star || star.status === "completed") return;
+
+    // 育成中は対象星への応援タップのみ許可
+    if (growingId) {
+      if (id === growingId) cheerStar(star);
+      return;
+    }
 
     if (selectedId && selectedId !== id) {
       const prev = findStar(selectedId);
@@ -160,10 +218,40 @@
     updatePanel();
   }
 
+  function cheerStar(star) {
+    if (celebrating || star.id !== growingId) return;
+
+    const now = performance.now();
+    if (now - lastCheerMs < CHEER_COOLDOWN_MS) return;
+    lastCheerMs = now;
+
+    const remainingBudget = CHEER_MAX_TOTAL_MS - cheerBoostAppliedMs;
+    if (remainingBudget > 0) {
+      const boost = Math.min(CHEER_BOOST_MS, remainingBudget);
+      cheerBoostAppliedMs += boost;
+      growthStartMs -= boost;
+    }
+
+    spawnCheerParticles(star);
+
+    star.el.classList.remove("is-cheered");
+    // reflow to restart animation
+    void star.el.offsetWidth;
+    star.el.classList.add("is-cheered");
+    window.setTimeout(() => star.el.classList.remove("is-cheered"), 360);
+
+    const line = CHEER_LOG_LINES[cheerLogIndex % CHEER_LOG_LINES.length];
+    cheerLogIndex += 1;
+    appendLog(line, "cheer");
+    ensureLoop();
+  }
+
   function syncStarElement(star) {
     const { el } = star;
+    const wasCheered = el.classList.contains("is-cheered");
     el.className = "star";
     el.classList.add(`phase-${star.colorPhase}`);
+    if (wasCheered) el.classList.add("is-cheered");
 
     if (star.status === "selected") el.classList.add("is-selected");
     if (star.status === "growing") el.classList.add("is-growing");
@@ -181,8 +269,12 @@
         probe.src = star.characterImageUrl;
         el.appendChild(img);
       }
+    } else if (growingId && growingId === star.id) {
+      el.disabled = false;
+      el.setAttribute("aria-label", `星 ${star.index}（タップで応援）`);
     } else {
       el.disabled = Boolean(growingId && growingId !== star.id);
+      el.setAttribute("aria-label", `星 ${star.index}`);
     }
   }
 
@@ -217,7 +309,7 @@
 
     els.selectionLabel.textContent =
       displayStar.status === "growing"
-        ? `星 ${displayStar.index} を育成中…`
+        ? `星 ${displayStar.index} を育成中… タップで応援！`
         : `選択中: 星 ${displayStar.index}`;
 
     setProgress(displayStar.progress);
@@ -254,7 +346,14 @@
 
     growingId = star.id;
     star.status = "growing";
+    cheerBoostAppliedMs = 0;
+    lastCheerMs = 0;
     growthStartMs = performance.now() - (star.progress / 100) * GROWTH_DURATION_MS;
+
+    clearLog();
+    star.loggedMilestones.add("start");
+    appendLog(GROWTH_MILESTONES[0].text, "milestone");
+
     syncAllStars();
     updatePanel();
     ensureLoop();
@@ -265,8 +364,9 @@
     const phase = getColorPhase(progress);
     if (phase !== star.colorPhase) {
       star.colorPhase = phase;
+      syncStarElement(star);
     }
-    syncStarElement(star);
+    maybeLogMilestones(star);
   }
 
   function completeStar(star) {
@@ -275,6 +375,7 @@
     star.progress = 100;
     star.status = "completed";
     star.colorPhase = "purple";
+    maybeLogMilestones(star);
     syncAllStars();
     updatePanel();
     celebrate(star);
@@ -298,6 +399,7 @@
 
       if (stars.every((s) => s.status === "completed")) {
         els.selectionLabel.textContent = "すべての星が完成しました！";
+        appendLog("夜空がいっぱいに輝いている…", "milestone");
       }
     }, CELEBRATE_MS);
   }
@@ -310,27 +412,50 @@
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   }
 
-  function spawnParticles(star) {
+  function spawnParticlesAt(star, count, colors, speedMin, speedMax, lifeMin, lifeMax) {
     const rect = els.sky.getBoundingClientRect();
     const cx = star.x * rect.width;
     const cy = star.y * rect.height;
-    const colors = ["#ffe566", "#c084fc", "#ffffff", "#7ec8ff", "#ffd6f5", "#b8f0c8"];
 
-    for (let i = 0; i < 70; i++) {
+    for (let i = 0; i < count; i++) {
       const angle = Math.random() * Math.PI * 2;
-      const speed = 40 + Math.random() * 160;
+      const speed = speedMin + Math.random() * (speedMax - speedMin);
       particles.push({
-        x: cx + (Math.random() - 0.5) * 20,
-        y: cy + (Math.random() - 0.5) * 20,
+        x: cx + (Math.random() - 0.5) * 16,
+        y: cy + (Math.random() - 0.5) * 16,
         vx: Math.cos(angle) * speed,
-        vy: Math.sin(angle) * speed - 40,
+        vy: Math.sin(angle) * speed - 30,
         life: 0,
-        maxLife: 0.9 + Math.random() * 1.2,
-        size: 2 + Math.random() * 3.5,
+        maxLife: lifeMin + Math.random() * (lifeMax - lifeMin),
+        size: 1.5 + Math.random() * 2.8,
         color: colors[i % colors.length],
       });
     }
     ensureLoop();
+  }
+
+  function spawnParticles(star) {
+    spawnParticlesAt(
+      star,
+      70,
+      ["#ffe566", "#c084fc", "#ffffff", "#7ec8ff", "#ffd6f5", "#b8f0c8"],
+      40,
+      200,
+      0.9,
+      2.1
+    );
+  }
+
+  function spawnCheerParticles(star) {
+    spawnParticlesAt(
+      star,
+      14,
+      ["#ffffff", "#d6eaff", "#ffe566", "#b8e0ff"],
+      30,
+      110,
+      0.4,
+      0.9
+    );
   }
 
   function updateParticles(dt) {
@@ -402,6 +527,7 @@
     createStars();
     resizeCanvas();
     updatePanel();
+    appendLog("夜空の星を選んで、育成してみよう", "");
 
     els.growBtn.addEventListener("click", startGrowth);
     window.addEventListener("resize", resizeCanvas);
