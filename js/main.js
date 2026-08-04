@@ -30,10 +30,6 @@
   const CHEER_COOLDOWN_MS = 350;
   /** 成長ログに同時表示する最大件数 */
   const LOG_MAX_ITEMS = 4;
-  /** 願いのかけら1個あたり、祝福パーティクルへ追加する個数 */
-  const WISH_BONUS_PARTICLES = 14;
-  /** 流れ星のクリック判定半径（px） */
-  const METEOR_CATCH_RADIUS = 32;
   /** 背景ワールドのサイズ（background.png の実寸） */
   const WORLD_WIDTH = 2752;
   const WORLD_HEIGHT = 1536;
@@ -84,7 +80,6 @@
     stars: document.getElementById("stars"),
     sky: document.getElementById("sky"),
     world: document.getElementById("world"),
-    meteors: document.getElementById("meteors"),
     canvas: document.getElementById("particles"),
     selectionLabel: document.getElementById("selectionLabel"),
     progressTrack: document.getElementById("progressTrack"),
@@ -94,8 +89,6 @@
     growBtn: document.getElementById("growBtn"),
     celebrateBanner: document.getElementById("celebrateBanner"),
     growthLog: document.getElementById("growthLog"),
-    wishCount: document.getElementById("wishCount"),
-    wishCounter: document.getElementById("wishCounter"),
   };
 
   const ctx = els.canvas.getContext("2d");
@@ -132,12 +125,6 @@
   let lastCheerMs = 0;
   /** 応援ログ文言のローテーション用インデックス */
   let cheerLogIndex = 0;
-  /** 所持中の願いのかけら数 */
-  let wishFragments = 0;
-  /** 次の流れ星出現予約タイマー */
-  let meteorTimerId = null;
-  /** 流れ星の一意ID採番用 */
-  let meteorSeq = 0;
 
   /** カメラ（ビューポート左上のワールド座標） */
   let camX = 0;
@@ -152,19 +139,6 @@
   /** ドラッグ後の click を無視するためのフラグ */
   let suppressClick = false;
   let activePointerId = null;
-
-  /** @type {Array<{
-   *   id: number,
-   *   el: HTMLButtonElement,
-   *   x: number,
-   *   y: number,
-   *   vx: number,
-   *   vy: number,
-   *   life: number,
-   *   maxLife: number,
-   *   caught: boolean,
-   * }>} */
-  let activeMeteors = [];
 
   /** @type {Array<{
    *   x: number, y: number, vx: number, vy: number,
@@ -306,15 +280,6 @@
   function onPanPointerUp(event) {
     if (event.pointerId !== activePointerId) return;
 
-    // ドラッグでなければ流れ星捕獲を試す
-    if (!isDragging && !celebrating) {
-      const meteor = findMeteorAt(event.clientX, event.clientY);
-      if (meteor) {
-        suppressClick = true;
-        catchMeteor(meteor);
-      }
-    }
-
     isPointerDown = false;
     isDragging = false;
     activePointerId = null;
@@ -332,193 +297,9 @@
     }, 0);
   }
 
-  // ============================================================
-  // 願いのかけら（流れ星報酬）
-  // ============================================================
-
-  /** ヘッダーの所持数表示を更新する */
-  function updateWishCounter() {
-    els.wishCount.textContent = String(wishFragments);
-  }
-
-  /** かけらを加算し、カウンタの獲得アニメを再生する */
-  function gainWishFragment(amount = 1) {
-    wishFragments += amount;
-    updateWishCounter();
-    // 同じクラスを付け直して CSS アニメを再発火させる
-    els.wishCounter.classList.remove("is-gain");
-    void els.wishCounter.offsetWidth;
-    els.wishCounter.classList.add("is-gain");
-  }
-
-  // ============================================================
-  // 流れ星ミニゲーム
-  // ============================================================
-
-  /** 画面上の流れ星をすべて消す（祝福開始時など） */
-  function clearMeteors() {
-    activeMeteors = [];
-    els.meteors.replaceChildren();
-  }
-
-  /**
-   * 次の流れ星出現を予約する。
-   * 育成中は待ち時間向けに出現間隔を短くする。
-   */
-  function scheduleNextMeteor() {
-    if (meteorTimerId != null) {
-      window.clearTimeout(meteorTimerId);
-    }
-    const delay = growingId
-      ? 6000 + Math.random() * 5000
-      : 11000 + Math.random() * 9000;
-    meteorTimerId = window.setTimeout(() => {
-      spawnMeteor();
-      scheduleNextMeteor();
-    }, delay);
-  }
-
-  /**
-   * 流れ星を1つ生成し、夜空を斜めに横切らせる。
-   * 位置は JS で毎フレーム更新し、クリック判定を安定させる。
-   */
-  function spawnMeteor() {
-    if (celebrating) return;
-    // 同時出現は最大2つまで
-    if (activeMeteors.filter((m) => !m.caught).length >= 2) return;
-
-    const rect = els.sky.getBoundingClientRect();
-    if (rect.width < 40 || rect.height < 40) return;
-
-    // 左右どちらから飛来するかランダムに決める
-    const fromLeft = Math.random() < 0.5;
-    const startYRatio = 0.08 + Math.random() * 0.45;
-    const endYRatio = Math.min(startYRatio + 0.18 + Math.random() * 0.28, 0.92);
-    const startX = (fromLeft ? -0.05 : 1.05) * rect.width;
-    const endX = (fromLeft ? 1.05 : -0.05) * rect.width;
-    const startY = startYRatio * rect.height;
-    const endY = endYRatio * rect.height;
-    // 基準時間 × 速度調整係数（段階的に遅くした値）
-    const duration = (1.8 + Math.random() * 1.0) * 1.2 * 1.3 * 1.5;
-    const angle = (Math.atan2(endY - startY, endX - startX) * 180) / Math.PI;
-
-    const id = ++meteorSeq;
-    const btn = document.createElement("button");
-    btn.type = "button";
-    btn.className = "meteor";
-    btn.dataset.meteorId = String(id);
-    btn.setAttribute("aria-label", "流れ星（タップで願いのかけらをゲット）");
-    btn.style.setProperty("--angle", `${angle}deg`);
-    btn.style.left = `${(startX / rect.width) * 100}%`;
-    btn.style.top = `${(startY / rect.height) * 100}%`;
-
-    els.meteors.appendChild(btn);
-
-    activeMeteors.push({
-      id,
-      el: btn,
-      x: startX,
-      y: startY,
-      vx: (endX - startX) / duration,
-      vy: (endY - startY) / duration,
-      life: 0,
-      maxLife: duration,
-      caught: false,
-    });
-
-    ensureLoop();
-  }
-
-  /** 流れ星の位置・透明度を時間経過で更新する */
-  function updateMeteors(dt) {
-    if (!activeMeteors.length) return;
-    const rect = els.sky.getBoundingClientRect();
-
-    activeMeteors = activeMeteors.filter((m) => {
-      // 捕獲済みはキャッチ演出が終わるまで要素が残る場合がある
-      if (m.caught) {
-        return m.el.isConnected;
-      }
-
-      m.life += dt;
-      m.x += m.vx * dt;
-      m.y += m.vy * dt;
-
-      // 画面横断が終わったら削除
-      if (m.life >= m.maxLife) {
-        m.el.remove();
-        return false;
-      }
-
-      // 出現直後と退場直前はフェードする
-      const t = m.life / m.maxLife;
-      let opacity = 1;
-      if (t < 0.08) opacity = t / 0.08;
-      else if (t > 0.88) opacity = (1 - t) / 0.12;
-
-      m.el.style.left = `${(m.x / rect.width) * 100}%`;
-      m.el.style.top = `${(m.y / rect.height) * 100}%`;
-      m.el.style.opacity = String(Math.max(0, Math.min(1, opacity)));
-      return true;
-    });
-  }
-
-  /**
-   * ポインタ座標に近い流れ星を返す。
-   * 要素そのものだけでなく、半径内なら捕獲可能にする。
-   */
-  function findMeteorAt(clientX, clientY) {
-    let best = null;
-    let bestDist = METEOR_CATCH_RADIUS;
-
-    for (const m of activeMeteors) {
-      if (m.caught || !m.el.isConnected) continue;
-      const r = m.el.getBoundingClientRect();
-      const cx = r.left + r.width / 2;
-      const cy = r.top + r.height / 2;
-      const dist = Math.hypot(clientX - cx, clientY - cy);
-      if (dist <= bestDist) {
-        bestDist = dist;
-        best = m;
-      }
-    }
-    return best;
-  }
-
-  /** 夜空へのポインタ入力。流れ星捕獲を優先して処理する */
+  /** 夜空へのポインタ入力（背景パン開始） */
   function onSkyPointerDown(event) {
-    // パン開始と兼用。捕獲は pointerup で判定する
     onPanPointerDown(event);
-  }
-
-  /** 流れ星を捕獲し、願いのかけらを付与する */
-  function catchMeteor(meteor) {
-    if (!meteor || meteor.caught || celebrating) return;
-
-    meteor.caught = true;
-    const rect = els.sky.getBoundingClientRect();
-    // 捕獲演出中は現在位置に固定する
-    meteor.el.style.left = `${(meteor.x / rect.width) * 100}%`;
-    meteor.el.style.top = `${(meteor.y / rect.height) * 100}%`;
-    meteor.el.classList.add("is-caught");
-
-    gainWishFragment(1);
-    appendLog("流れ星をつかまえた！ 願いのかけら＋1", "wish");
-    spawnBurstAt(
-      meteor.x,
-      meteor.y,
-      18,
-      ["#ffe566", "#ffffff", "#7ec8ff", "#ffd6f5"],
-      40,
-      140,
-      0.35,
-      0.75
-    );
-
-    window.setTimeout(() => {
-      if (meteor.el.isConnected) meteor.el.remove();
-      activeMeteors = activeMeteors.filter((m) => m.id !== meteor.id);
-    }, 280);
   }
 
   // ============================================================
@@ -765,7 +546,7 @@
 
     els.selectionLabel.textContent =
       displayStar.status === "growing"
-        ? `星 ${displayStar.index} を育成中… 応援＆流れ星をねらえ！`
+        ? `星 ${displayStar.index} を育成中… タップで応援！`
         : `選択中: 星 ${displayStar.index}`;
 
     setProgress(displayStar.progress);
@@ -819,8 +600,6 @@
 
     syncAllStars();
     updatePanel();
-    // 育成中は流れ星を多めに出すためスケジュールを組み直す
-    scheduleNextMeteor();
     ensureLoop();
   }
 
@@ -853,23 +632,14 @@
 
   /**
    * 完成祝福。
-   * 所持中の願いのかけらを消費してパーティクル量を増やし、演出後に操作を再開する。
+   * パーティクル演出を再生し、演出後に操作を再開する。
    */
   function celebrate(star) {
     celebrating = true;
     els.growBtn.disabled = true;
-    clearMeteors();
 
-    const usedWishes = wishFragments;
-    wishFragments = 0;
-    updateWishCounter();
-
-    spawnCelebrateParticles(star, usedWishes);
+    spawnCelebrateParticles(star);
     els.celebrateBanner.hidden = false;
-
-    if (usedWishes > 0) {
-      appendLog(`願いのかけら ×${usedWishes} で祝福がきらめいた！`, "wish");
-    }
 
     window.setTimeout(() => {
       els.celebrateBanner.hidden = true;
@@ -881,7 +651,6 @@
       }
       syncAllStars();
       updatePanel();
-      scheduleNextMeteor();
 
       if (stars.every((s) => s.status === "completed")) {
         els.selectionLabel.textContent = "すべての星が完成しました！";
@@ -951,15 +720,14 @@
     ensureLoop();
   }
 
-  /** 完成祝福用。願いのかけら数に応じて粒子量を増やす */
-  function spawnCelebrateParticles(star, wishBonus) {
-    const bonus = Math.max(0, wishBonus) * WISH_BONUS_PARTICLES;
+  /** 完成祝福用パーティクル */
+  function spawnCelebrateParticles(star) {
     spawnParticlesAt(
       star,
-      70 + bonus,
+      70,
       ["#ffe566", "#c084fc", "#ffffff", "#7ec8ff", "#ffd6f5", "#b8f0c8"],
       40,
-      200 + Math.min(80, wishBonus * 8),
+      200,
       0.9,
       2.1
     );
@@ -1022,7 +790,7 @@
 
   /**
    * 毎フレームの更新入口。
-   * 育成進捗・パーティクル・流れ星を進め、必要な間だけループを継続する。
+   * 育成進捗・パーティクルを進め、必要な間だけループを継続する。
    */
   function tick(ts) {
     rafId = null;
@@ -1045,10 +813,9 @@
     }
 
     updateParticles(dt);
-    updateMeteors(dt);
 
     // 動きがある間だけ rAF を回し、アイドル時は停止して負荷を下げる
-    if (growingId || particles.length || celebrating || activeMeteors.length) {
+    if (growingId || particles.length || celebrating) {
       rafId = requestAnimationFrame(tick);
     } else {
       lastTs = 0;
@@ -1067,7 +834,7 @@
   // 初期化
   // ============================================================
 
-  /** 画面構築とイベント登録、最初の流れ星予約を行う */
+  /** 画面構築とイベント登録を行う */
   function init() {
     // ワールドサイズを CSS 変数へ渡し、背景レイヤの寸法と揃える
     els.sky.style.setProperty("--world-width", `${WORLD_WIDTH}px`);
@@ -1079,9 +846,8 @@
     resizeCanvas();
     centerCameraOnWorld();
     updatePanel();
-    updateWishCounter();
     appendLog("背景をドラッグして、散らばる星を探そう", "");
-    appendLog("流れ星をタップして、願いのかけらを集めよう", "wish");
+    appendLog("星を選んで育成ボタンを押してみよう", "");
 
     els.growBtn.addEventListener("click", startGrowth);
     els.sky.addEventListener("pointerdown", onSkyPointerDown);
@@ -1089,12 +855,6 @@
     els.sky.addEventListener("pointerup", onPanPointerUp);
     els.sky.addEventListener("pointercancel", onPanPointerUp);
     window.addEventListener("resize", resizeCanvas);
-
-    // 起動直後は少し待ってから最初の流れ星を出す
-    meteorTimerId = window.setTimeout(() => {
-      spawnMeteor();
-      scheduleNextMeteor();
-    }, 2800 + Math.random() * 2200);
   }
 
   init();

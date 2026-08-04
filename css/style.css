@@ -1,6 +1,6 @@
 /* ============================================================
    Starry Canvas — スタイル
-   夜空ステージ / 星 / 流れ星 / 下部パネル / 祝福演出
+   夜空ステージ / 星 / 下部パネル / 祝福演出
    ============================================================ */
 
 :root {
@@ -73,42 +73,6 @@ body {
   color: var(--text-muted);
 }
 
-.wish-counter {
-  margin: 0.55rem 0 0;
-  display: inline-flex;
-  align-items: center;
-  gap: 0.35rem;
-  padding: 0.28rem 0.75rem;
-  border: 1px solid rgba(180, 210, 255, 0.22);
-  border-radius: 999px;
-  font-family: var(--font-display);
-  font-size: 0.82rem;
-  color: #dce9ff;
-  background: rgba(12, 20, 40, 0.55);
-}
-
-.wish-counter span {
-  font-weight: 700;
-  color: #ffe566;
-  font-variant-numeric: tabular-nums;
-}
-
-.wish-counter.is-gain {
-  animation: wish-gain 0.45s ease-out;
-}
-
-@keyframes wish-gain {
-  0% {
-    transform: scale(1);
-  }
-  40% {
-    transform: scale(1.08);
-  }
-  100% {
-    transform: scale(1);
-  }
-}
-
 .stage-wrap {
   padding: 0.5rem 1rem;
   min-height: 0;
@@ -153,66 +117,6 @@ body {
 .stars {
   position: absolute;
   inset: 0;
-}
-
-/* --- 流れ星（JSで位置更新。クリック判定のため前面に配置） --- */
-.meteors {
-  position: absolute;
-  inset: 0;
-  z-index: 6;
-  pointer-events: none;
-}
-
-.meteor {
-  position: absolute;
-  width: 28px;
-  height: 28px;
-  margin: -14px 0 0 -14px;
-  border: none;
-  padding: 0;
-  border-radius: 50%;
-  cursor: pointer;
-  pointer-events: auto;
-  background: radial-gradient(circle at 40% 40%, #fff 0%, #ffe9a0 28%, transparent 62%);
-  box-shadow:
-    0 0 6px 2px rgba(255, 236, 170, 0.85),
-    0 0 12px 4px rgba(126, 200, 255, 0.35);
-  z-index: 6;
-  opacity: 1;
-}
-
-.meteor::before {
-  content: "";
-  position: absolute;
-  left: 50%;
-  top: 50%;
-  width: 32px;
-  height: 2px;
-  border-radius: 999px;
-  background: linear-gradient(90deg, transparent, rgba(255, 240, 200, 0.9));
-  transform: translate(-10%, -50%) rotate(var(--angle, -28deg));
-  transform-origin: left center;
-  pointer-events: none;
-}
-
-.meteor:hover {
-  filter: brightness(1.15);
-}
-
-@keyframes meteor-catch {
-  0% {
-    transform: scale(1);
-    opacity: 1;
-  }
-  100% {
-    transform: scale(1.8);
-    opacity: 0;
-  }
-}
-
-.meteor.is-caught {
-  animation: meteor-catch 0.28s ease-out forwards;
-  pointer-events: none;
 }
 
 /* --- 祝福・応援用パーティクル Canvas（クリックは透過） --- */
@@ -453,10 +357,6 @@ body {
 
 .growth-log-list li.is-milestone {
   color: #ffe9a8;
-}
-
-.growth-log-list li.is-wish {
-  color: #ffe566;
 }
 
 @keyframes log-in {
