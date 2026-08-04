@@ -1,4 +1,10 @@
+/* ============================================================
+   Starry Canvas — スタイル
+   夜空ステージ / 星 / 流れ星 / 下部パネル / 祝福演出
+   ============================================================ */
+
 :root {
+  /* 夜空・UI・星の色フェーズ用トークン */
   --sky-top: #070b18;
   --sky-mid: #101a32;
   --sky-bottom: #1a2744;
@@ -37,6 +43,7 @@ body {
   overflow: hidden;
 }
 
+/* --- レイアウト骨格（ヘッダー / ステージ / パネル） --- */
 .app {
   display: grid;
   grid-template-rows: auto 1fr auto;
@@ -107,6 +114,7 @@ body {
   min-height: 0;
 }
 
+/* --- 夜空ステージ --- */
 .sky {
   position: relative;
   width: 100%;
@@ -150,6 +158,7 @@ body {
   inset: 0;
 }
 
+/* --- 流れ星（JSで位置更新。クリック判定のため前面に配置） --- */
 .meteors {
   position: absolute;
   inset: 0;
@@ -209,6 +218,7 @@ body {
   pointer-events: none;
 }
 
+/* --- 祝福・応援用パーティクル Canvas（クリックは透過） --- */
 .particles {
   position: absolute;
   inset: 0;
@@ -218,6 +228,7 @@ body {
   z-index: 5;
 }
 
+/* --- 育成対象の星（光点 / 完成キャラ） --- */
 .star {
   position: absolute;
   width: 14px;
@@ -345,6 +356,7 @@ body {
   opacity: 0.55;
 }
 
+/* --- 下部操作パネル（進捗・育成ボタン・成長ログ） --- */
 .panel {
   display: flex;
   align-items: center;
@@ -505,6 +517,7 @@ body {
   cursor: not-allowed;
 }
 
+/* --- 完成時の祝福バナー --- */
 .celebrate-banner {
   position: fixed;
   inset: 0;

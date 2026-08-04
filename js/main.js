@@ -1,8 +1,18 @@
 (() => {
   "use strict";
 
+  // ============================================================
+  // 定数・設定値
+  // ============================================================
+
+  /** 夜空に配置する星の個数 */
   const STAR_COUNT = 10;
+  /** 星1つあたりの育成時間（ミリ秒）。仕様どおり1分 */
   const GROWTH_DURATION_MS = 60_000;
+  /**
+   * 進捗に応じた星の色フェーズ判定テーブル。
+   * 大きい閾値から順に照合する。
+   */
   const COLOR_THRESHOLDS = [
     { min: 80, phase: "purple" },
     { min: 75, phase: "red" },
@@ -10,13 +20,22 @@
     { min: 25, phase: "yellow" },
     { min: 0, phase: "initial" },
   ];
+  /** 完成時の祝福バナー／操作ロックの長さ */
   const CELEBRATE_MS = 2200;
+  /** 応援タップ1回あたりの育成短縮量 */
   const CHEER_BOOST_MS = 500;
+  /** 1回の育成で応援によって短縮できる合計上限 */
   const CHEER_MAX_TOTAL_MS = 5_000;
+  /** 応援タップの連打防止インターバル */
   const CHEER_COOLDOWN_MS = 350;
+  /** 成長ログに同時表示する最大件数 */
   const LOG_MAX_ITEMS = 4;
+  /** 願いのかけら1個あたり、祝福パーティクルへ追加する個数 */
   const WISH_BONUS_PARTICLES = 14;
+  /** 流れ星のクリック判定半径（px） */
+  const METEOR_CATCH_RADIUS = 32;
 
+  /** 進捗マイルストーン到達時に出す成長ログ文言 */
   const GROWTH_MILESTONES = [
     { id: "start", min: 0, text: "やさしい光がゆらぎはじめた…" },
     { id: "yellow", min: 25, text: "あたたかい黄色に輝きだした！" },
@@ -26,6 +45,7 @@
     { id: "complete", min: 100, text: "キャラクターが生まれた！" },
   ];
 
+  /** 応援タップ時にログへ出す短文（順繰り） */
   const CHEER_LOG_LINES = [
     "きらっと応えてくれた！",
     "応援が届いたみたい…",
@@ -47,6 +67,10 @@
     { x: 0.78, y: 0.18 },
     { x: 0.88, y: 0.48 },
   ];
+
+  // ============================================================
+  // DOM参照・ゲーム状態
+  // ============================================================
 
   const els = {
     stars: document.getElementById("stars"),
@@ -80,18 +104,31 @@
    *   loggedMilestones: Set<string>,
    * }>} */
   let stars = [];
+  /** 現在選択中の星ID（未選択時は null） */
   let selectedId = null;
+  /** 育成中の星ID（同時育成は1つのみ） */
   let growingId = null;
+  /**
+   * 育成開始時刻（performance.now 基準）。
+   * 応援で短縮するときはこの値を手前にずらす。
+   */
   let growthStartMs = 0;
+  /** 祝福演出中は操作をロックする */
   let celebrating = false;
+  /** requestAnimationFrame のハンドル */
   let rafId = null;
+  /** 現在の育成セッションで既に適用した応援短縮量 */
   let cheerBoostAppliedMs = 0;
+  /** 直前の応援タップ時刻（クールダウン用） */
   let lastCheerMs = 0;
+  /** 応援ログ文言のローテーション用インデックス */
   let cheerLogIndex = 0;
+  /** 所持中の願いのかけら数 */
   let wishFragments = 0;
+  /** 次の流れ星出現予約タイマー */
   let meteorTimerId = null;
+  /** 流れ星の一意ID採番用 */
   let meteorSeq = 0;
-  const METEOR_CATCH_RADIUS = 32;
 
   /** @type {Array<{
    *   id: number,
@@ -112,10 +149,16 @@
    * }>} */
   let particles = [];
 
+  // ============================================================
+  // ユーティリティ
+  // ============================================================
+
+  /** 数値を2桁ゼロ埋めする（星ID・時刻表示用） */
   function pad2(n) {
     return String(n).padStart(2, "0");
   }
 
+  /** 残りミリ秒を「残り mm:ss」形式に変換する */
   function formatRemaining(ms) {
     const totalSec = Math.max(0, Math.ceil(ms / 1000));
     const m = Math.floor(totalSec / 60);
@@ -123,6 +166,7 @@
     return `残り ${pad2(m)}:${pad2(s)}`;
   }
 
+  /** 進捗％から星の色フェーズ名を返す */
   function getColorPhase(progress) {
     for (const rule of COLOR_THRESHOLDS) {
       if (progress >= rule.min) return rule.phase;
@@ -130,23 +174,39 @@
     return "initial";
   }
 
+  // ============================================================
+  // 願いのかけら（流れ星報酬）
+  // ============================================================
+
+  /** ヘッダーの所持数表示を更新する */
   function updateWishCounter() {
     els.wishCount.textContent = String(wishFragments);
   }
 
+  /** かけらを加算し、カウンタの獲得アニメを再生する */
   function gainWishFragment(amount = 1) {
     wishFragments += amount;
     updateWishCounter();
+    // 同じクラスを付け直して CSS アニメを再発火させる
     els.wishCounter.classList.remove("is-gain");
     void els.wishCounter.offsetWidth;
     els.wishCounter.classList.add("is-gain");
   }
 
+  // ============================================================
+  // 流れ星ミニゲーム
+  // ============================================================
+
+  /** 画面上の流れ星をすべて消す（祝福開始時など） */
   function clearMeteors() {
     activeMeteors = [];
     els.meteors.replaceChildren();
   }
 
+  /**
+   * 次の流れ星出現を予約する。
+   * 育成中は待ち時間向けに出現間隔を短くする。
+   */
   function scheduleNextMeteor() {
     if (meteorTimerId != null) {
       window.clearTimeout(meteorTimerId);
@@ -160,13 +220,19 @@
     }, delay);
   }
 
+  /**
+   * 流れ星を1つ生成し、夜空を斜めに横切らせる。
+   * 位置は JS で毎フレーム更新し、クリック判定を安定させる。
+   */
   function spawnMeteor() {
     if (celebrating) return;
+    // 同時出現は最大2つまで
     if (activeMeteors.filter((m) => !m.caught).length >= 2) return;
 
     const rect = els.sky.getBoundingClientRect();
     if (rect.width < 40 || rect.height < 40) return;
 
+    // 左右どちらから飛来するかランダムに決める
     const fromLeft = Math.random() < 0.5;
     const startYRatio = 0.08 + Math.random() * 0.45;
     const endYRatio = Math.min(startYRatio + 0.18 + Math.random() * 0.28, 0.92);
@@ -174,6 +240,7 @@
     const endX = (fromLeft ? 1.05 : -0.05) * rect.width;
     const startY = startYRatio * rect.height;
     const endY = endYRatio * rect.height;
+    // 基準時間 × 速度調整係数（段階的に遅くした値）
     const duration = (1.8 + Math.random() * 1.0) * 1.2 * 1.3 * 1.5;
     const angle = (Math.atan2(endY - startY, endX - startX) * 180) / Math.PI;
 
@@ -204,11 +271,13 @@
     ensureLoop();
   }
 
+  /** 流れ星の位置・透明度を時間経過で更新する */
   function updateMeteors(dt) {
     if (!activeMeteors.length) return;
     const rect = els.sky.getBoundingClientRect();
 
     activeMeteors = activeMeteors.filter((m) => {
+      // 捕獲済みはキャッチ演出が終わるまで要素が残る場合がある
       if (m.caught) {
         return m.el.isConnected;
       }
@@ -217,11 +286,13 @@
       m.x += m.vx * dt;
       m.y += m.vy * dt;
 
+      // 画面横断が終わったら削除
       if (m.life >= m.maxLife) {
         m.el.remove();
         return false;
       }
 
+      // 出現直後と退場直前はフェードする
       const t = m.life / m.maxLife;
       let opacity = 1;
       if (t < 0.08) opacity = t / 0.08;
@@ -234,6 +305,10 @@
     });
   }
 
+  /**
+   * ポインタ座標に近い流れ星を返す。
+   * 要素そのものだけでなく、半径内なら捕獲可能にする。
+   */
   function findMeteorAt(clientX, clientY) {
     let best = null;
     let bestDist = METEOR_CATCH_RADIUS;
@@ -252,6 +327,7 @@
     return best;
   }
 
+  /** 夜空へのポインタ入力。流れ星捕獲を優先して処理する */
   function onSkyPointerDown(event) {
     if (celebrating) return;
     if (event.button != null && event.button !== 0) return;
@@ -264,11 +340,13 @@
     catchMeteor(meteor);
   }
 
+  /** 流れ星を捕獲し、願いのかけらを付与する */
   function catchMeteor(meteor) {
     if (!meteor || meteor.caught || celebrating) return;
 
     meteor.caught = true;
     const rect = els.sky.getBoundingClientRect();
+    // 捕獲演出中は現在位置に固定する
     meteor.el.style.left = `${(meteor.x / rect.width) * 100}%`;
     meteor.el.style.top = `${(meteor.y / rect.height) * 100}%`;
     meteor.el.classList.add("is-caught");
@@ -292,6 +370,11 @@
     }, 280);
   }
 
+  // ============================================================
+  // 成長ログ
+  // ============================================================
+
+  /** 成長ログへ1行追加し、古い行を上限まで削る */
   function appendLog(text, kind = "") {
     const li = document.createElement("li");
     if (kind) li.classList.add(`is-${kind}`);
@@ -302,6 +385,7 @@
       els.growthLog.removeChild(els.growthLog.firstElementChild);
     }
 
+    // 最新行が見えるよう末尾へスクロール
     els.growthLog.scrollTop = els.growthLog.scrollHeight;
   }
 
@@ -309,6 +393,7 @@
     els.growthLog.replaceChildren();
   }
 
+  /** 進捗がマイルストーンを超えたら、未出力のログだけ追加する */
   function maybeLogMilestones(star) {
     for (const milestone of GROWTH_MILESTONES) {
       if (star.progress < milestone.min) continue;
@@ -320,6 +405,14 @@
     }
   }
 
+  // ============================================================
+  // 星の生成・選択・表示同期
+  // ============================================================
+
+  /**
+   * キャラ画像未配置時の仮マスコット（SVG data URL）を作る。
+   * 本番画像が読み込めたら差し替える。
+   */
   function createPlaceholderSvg(index) {
     const hues = [200, 45, 320, 160, 280, 20, 190, 340, 100, 240];
     const hue = hues[(index - 1) % hues.length];
@@ -344,6 +437,7 @@
     return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
   }
 
+  /** プリセット座標で星ボタンとデータモデルを生成する */
   function createStars() {
     stars = STAR_POSITIONS.slice(0, STAR_COUNT).map((pos, i) => {
       const index = i + 1;
@@ -377,6 +471,12 @@
     return stars.find((s) => s.id === id) || null;
   }
 
+  /**
+   * 星クリック時の分岐。
+   * - 通常時: 選択
+   * - 育成中: 育成対象なら応援タップ
+   * - 完成済み / 祝福中: 無視
+   */
   function onStarClick(id) {
     if (celebrating) return;
 
@@ -389,6 +489,7 @@
       return;
     }
 
+    // 別の星が選択中なら解除してから付け替える
     if (selectedId && selectedId !== id) {
       const prev = findStar(selectedId);
       if (prev && prev.status === "selected") {
@@ -403,6 +504,10 @@
     updatePanel();
   }
 
+  /**
+   * 育成中の星への応援タップ。
+   * パーティクル演出に加え、上限付きで育成時間をわずかに短縮する。
+   */
   function cheerStar(star) {
     if (celebrating || star.id !== growingId) return;
 
@@ -410,6 +515,7 @@
     if (now - lastCheerMs < CHEER_COOLDOWN_MS) return;
     lastCheerMs = now;
 
+    // growthStartMs を過去へずらすと、経過時間が伸びて進捗が前倒しになる
     const remainingBudget = CHEER_MAX_TOTAL_MS - cheerBoostAppliedMs;
     if (remainingBudget > 0) {
       const boost = Math.min(CHEER_BOOST_MS, remainingBudget);
@@ -419,8 +525,8 @@
 
     spawnCheerParticles(star);
 
+    // 同じクラス再付与で脈打ちアニメを再スタート
     star.el.classList.remove("is-cheered");
-    // reflow to restart animation
     void star.el.offsetWidth;
     star.el.classList.add("is-cheered");
     window.setTimeout(() => star.el.classList.remove("is-cheered"), 360);
@@ -431,6 +537,10 @@
     ensureLoop();
   }
 
+  /**
+   * 星データに合わせて DOM の見た目・活性状態を同期する。
+   * 完成時は画像を載せ、未配置ならプレースホルダを使う。
+   */
   function syncStarElement(star) {
     const { el } = star;
     const wasCheered = el.classList.contains("is-cheered");
@@ -446,6 +556,7 @@
       if (!el.querySelector("img")) {
         const img = document.createElement("img");
         img.alt = `星 ${star.index} のキャラクター`;
+        // まずプレースホルダを出し、本番画像があれば差し替え
         img.src = createPlaceholderSvg(star.index);
         const probe = new Image();
         probe.onload = () => {
@@ -455,9 +566,11 @@
         el.appendChild(img);
       }
     } else if (growingId && growingId === star.id) {
+      // 育成対象だけはクリック可（応援用）
       el.disabled = false;
       el.setAttribute("aria-label", `星 ${star.index}（タップで応援）`);
     } else {
+      // 育成中は他星を操作不可にする
       el.disabled = Boolean(growingId && growingId !== star.id);
       el.setAttribute("aria-label", `星 ${star.index}`);
     }
@@ -467,6 +580,11 @@
     for (const star of stars) syncStarElement(star);
   }
 
+  // ============================================================
+  // 下部パネル（進捗・育成ボタン）
+  // ============================================================
+
+  /** 選択中／育成中の星に合わせてパネル文言と進捗表示を更新する */
   function updatePanel() {
     const star = selectedId ? findStar(selectedId) : null;
     const displayStar =
@@ -516,6 +634,7 @@
     els.growBtn.textContent = growingId ? "育成中…" : "育成";
   }
 
+  /** プログレスバーと％表示を更新する */
   function setProgress(progress) {
     const pct = Math.max(0, Math.min(100, progress));
     const shown = Math.floor(pct);
@@ -524,6 +643,11 @@
     els.progressTrack.setAttribute("aria-valuenow", String(shown));
   }
 
+  // ============================================================
+  // 育成・完成・祝福
+  // ============================================================
+
+  /** 「育成」ボタン。選択中の星の育成を開始する */
   function startGrowth() {
     if (celebrating || growingId || !selectedId) return;
     const star = findStar(selectedId);
@@ -533,6 +657,7 @@
     star.status = "growing";
     cheerBoostAppliedMs = 0;
     lastCheerMs = 0;
+    // 進捗途中からの再開にも対応できるよう、開始時刻を進捗分ずらす
     growthStartMs = performance.now() - (star.progress / 100) * GROWTH_DURATION_MS;
 
     clearLog();
@@ -541,10 +666,15 @@
 
     syncAllStars();
     updatePanel();
+    // 育成中は流れ星を多めに出すためスケジュールを組み直す
     scheduleNextMeteor();
     ensureLoop();
   }
 
+  /**
+   * 育成中の進捗を反映する。
+   * 色フェーズが変わったときだけ DOM を同期し、毎フレームの再描画コストを抑える。
+   */
   function applyProgress(star, progress) {
     star.progress = progress;
     const phase = getColorPhase(progress);
@@ -555,6 +685,7 @@
     maybeLogMilestones(star);
   }
 
+  /** 進捗100%到達時。育成を終え、祝福演出へ移行する */
   function completeStar(star) {
     growingId = null;
     selectedId = star.id;
@@ -567,6 +698,10 @@
     celebrate(star);
   }
 
+  /**
+   * 完成祝福。
+   * 所持中の願いのかけらを消費してパーティクル量を増やし、演出後に操作を再開する。
+   */
   function celebrate(star) {
     celebrating = true;
     els.growBtn.disabled = true;
@@ -602,15 +737,28 @@
     }, CELEBRATE_MS);
   }
 
+  // ============================================================
+  // パーティクル（Canvas）
+  // ============================================================
+
+  /**
+   * パーティクル用キャンバスを夜空サイズに合わせる。
+   * 高DPIディスプレイでは devicePixelRatio で解像度を上げる。
+   */
   function resizeCanvas() {
     const rect = els.sky.getBoundingClientRect();
     const dpr = window.devicePixelRatio || 1;
     els.canvas.width = Math.floor(rect.width * dpr);
     els.canvas.height = Math.floor(rect.height * dpr);
+    // 以降の描画座標は CSS ピクセル基準で扱えるようにする
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     clearParticleCanvas();
   }
 
+  /**
+   * キャンバス全体を確実に消去する。
+   * 変換行列の影響を避けるため、いったん単位行列で clear する。
+   */
   function clearParticleCanvas() {
     ctx.save();
     ctx.setTransform(1, 0, 0, 1, 0, 0);
@@ -623,6 +771,7 @@
     clearParticleCanvas();
   }
 
+  /** 星の相対座標を基準にパーティクルを発生させる */
   function spawnParticlesAt(star, count, colors, speedMin, speedMax, lifeMin, lifeMax) {
     const rect = els.sky.getBoundingClientRect();
     const cx = star.x * rect.width;
@@ -630,6 +779,7 @@
     spawnBurstAt(cx, cy, count, colors, speedMin, speedMax, lifeMin, lifeMax);
   }
 
+  /** 指定座標から放射状にパーティクルを生成する */
   function spawnBurstAt(cx, cy, count, colors, speedMin, speedMax, lifeMin, lifeMax) {
     for (let i = 0; i < count; i++) {
       const angle = Math.random() * Math.PI * 2;
@@ -648,6 +798,7 @@
     ensureLoop();
   }
 
+  /** 完成祝福用。願いのかけら数に応じて粒子量を増やす */
   function spawnCelebrateParticles(star, wishBonus) {
     const bonus = Math.max(0, wishBonus) * WISH_BONUS_PARTICLES;
     spawnParticlesAt(
@@ -661,6 +812,7 @@
     );
   }
 
+  /** 応援タップ用の小さめの輝き */
   function spawnCheerParticles(star) {
     spawnParticlesAt(
       star,
@@ -673,6 +825,10 @@
     );
   }
 
+  /**
+   * パーティクルの移動・寿命・描画を1フレーム分進める。
+   * 枠外へ出た粒子はすぐ捨て、下端に残像が残らないようにする。
+   */
   function updateParticles(dt) {
     const rect = els.sky.getBoundingClientRect();
     clearParticleCanvas();
@@ -685,7 +841,7 @@
       p.life += dt;
       p.x += p.vx * dt;
       p.y += p.vy * dt;
-      p.vy += 90 * dt;
+      p.vy += 90 * dt; // 重力
       const t = p.life / p.maxLife;
       if (t >= 1) return false;
       // 枠外へ出た粒子は描画せず除去（下端への残留防止）
@@ -705,11 +861,20 @@
     ctx.globalAlpha = 1;
   }
 
+  // ============================================================
+  // メインループ
+  // ============================================================
+
   let lastTs = 0;
 
+  /**
+   * 毎フレームの更新入口。
+   * 育成進捗・パーティクル・流れ星を進め、必要な間だけループを継続する。
+   */
   function tick(ts) {
     rafId = null;
     if (!lastTs) lastTs = ts;
+    // タブ復帰などで大きな dt にならないよう上限を設ける
     const dt = Math.min(0.05, (ts - lastTs) / 1000);
     lastTs = ts;
 
@@ -729,6 +894,7 @@
     updateParticles(dt);
     updateMeteors(dt);
 
+    // 動きがある間だけ rAF を回し、アイドル時は停止して負荷を下げる
     if (growingId || particles.length || celebrating || activeMeteors.length) {
       rafId = requestAnimationFrame(tick);
     } else {
@@ -736,6 +902,7 @@
     }
   }
 
+  /** メインループが止まっていれば再開する */
   function ensureLoop() {
     if (rafId == null) {
       lastTs = 0;
@@ -743,6 +910,11 @@
     }
   }
 
+  // ============================================================
+  // 初期化
+  // ============================================================
+
+  /** 画面構築とイベント登録、最初の流れ星予約を行う */
   function init() {
     createStars();
     resizeCanvas();
@@ -755,6 +927,7 @@
     els.sky.addEventListener("pointerdown", onSkyPointerDown);
     window.addEventListener("resize", resizeCanvas);
 
+    // 起動直後は少し待ってから最初の流れ星を出す
     meteorTimerId = window.setTimeout(() => {
       spawnMeteor();
       scheduleNextMeteor();

@@ -13,16 +13,19 @@
     <link rel="stylesheet" href="css/style.css" />
   </head>
   <body>
+    <!-- 画面全体: ヘッダー / 夜空ステージ / 操作パネル -->
     <div class="app">
       <header class="header">
         <p class="brand">Starry Canvas</p>
         <p class="tagline">夜空の星を育てて、キャラクターにしよう</p>
+        <!-- 流れ星で集めた願いのかけら所持数 -->
         <p id="wishCounter" class="wish-counter" aria-live="polite">
           願いのかけら <span id="wishCount">0</span>
         </p>
       </header>
 
       <main class="stage-wrap">
+        <!-- 星・流れ星・パーティクルを重ねるプレイ領域 -->
         <div id="sky" class="sky" aria-label="夜空ステージ" role="application">
           <div class="sky-dust" aria-hidden="true"></div>
           <div id="stars" class="stars"></div>
@@ -34,6 +37,7 @@
       <footer class="panel">
         <div class="panel-info">
           <p id="selectionLabel" class="selection-label">星を選んでください</p>
+          <!-- 育成進捗（バー / ％ / 残り時間） -->
           <div class="progress-row">
             <div
               class="progress-track"
@@ -48,6 +52,7 @@
             <span id="progressPercent" class="progress-percent">0%</span>
             <span id="remainingTime" class="remaining-time">残り —</span>
           </div>
+          <!-- マイルストーン・応援・流れ星などの短文ログ -->
           <div class="growth-log" aria-live="polite" aria-relevant="additions">
             <p class="growth-log-title">成長ログ</p>
             <ul id="growthLog" class="growth-log-list"></ul>
@@ -56,6 +61,7 @@
         <button id="growBtn" class="grow-btn" type="button" disabled>育成</button>
       </footer>
 
+      <!-- 完成時に短時間表示する祝福メッセージ -->
       <div id="celebrateBanner" class="celebrate-banner" hidden>
         <p class="celebrate-text">完成！</p>
       </div>
