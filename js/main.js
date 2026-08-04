@@ -12,12 +12,12 @@
   /**
    * 進捗に応じた星の色フェーズ判定テーブル。
    * 大きい閾値から順に照合する。
+   * 初期＝黄 / 25%＝青 / 50%＝赤 / 75%＝紫
    */
   const COLOR_THRESHOLDS = [
-    { min: 80, phase: "purple" },
-    { min: 75, phase: "red" },
-    { min: 50, phase: "blue" },
-    { min: 25, phase: "yellow" },
+    { min: 75, phase: "purple" },
+    { min: 50, phase: "red" },
+    { min: 25, phase: "blue" },
     { min: 0, phase: "initial" },
   ];
   /** 完成時の祝福バナー／操作ロックの長さ */
@@ -38,11 +38,10 @@
 
   /** 進捗マイルストーン到達時に出す成長ログ文言 */
   const GROWTH_MILESTONES = [
-    { id: "start", min: 0, text: "やさしい光がゆらぎはじめた…" },
-    { id: "yellow", min: 25, text: "あたたかい黄色に輝きだした！" },
-    { id: "blue", min: 50, text: "深い青の光が広がっていく…" },
-    { id: "red", min: 75, text: "熱い赤に色づいた！" },
-    { id: "purple", min: 80, text: "神秘的な紫の光が満ちていく…" },
+    { id: "start", min: 0, text: "黄色い光がゆらぎはじめた…" },
+    { id: "blue", min: 25, text: "青い輝きに変わった！" },
+    { id: "red", min: 50, text: "熱い赤に色づいた！" },
+    { id: "purple", min: 75, text: "神秘的な紫の光が満ちていく…" },
     { id: "complete", min: 100, text: "キャラクターが生まれた！" },
   ];
 
