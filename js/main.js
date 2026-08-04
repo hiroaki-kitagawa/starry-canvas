@@ -34,6 +34,11 @@
   const WISH_BONUS_PARTICLES = 14;
   /** 流れ星のクリック判定半径（px） */
   const METEOR_CATCH_RADIUS = 32;
+  /** 背景ワールドのサイズ（background.png の実寸） */
+  const WORLD_WIDTH = 2752;
+  const WORLD_HEIGHT = 1536;
+  /** この距離以上動いたらドラッグ扱い（クリックと区別） */
+  const DRAG_THRESHOLD_PX = 8;
 
   /** 進捗マイルストーン到達時に出す成長ログ文言 */
   const GROWTH_MILESTONES = [
@@ -54,18 +59,21 @@
     "あなたの声援、受け取った！",
   ];
 
-  /** 重複しにくいプリセット座標（相対 0〜1） */
+  /**
+   * 育成星の配置（ワールド全体に散りばめる。相対 0〜1）。
+   * 中央付近にも数個置き、初期視点から探し始められるようにする。
+   */
   const STAR_POSITIONS = [
-    { x: 0.12, y: 0.22 },
-    { x: 0.28, y: 0.48 },
-    { x: 0.18, y: 0.72 },
-    { x: 0.42, y: 0.18 },
-    { x: 0.48, y: 0.58 },
-    { x: 0.38, y: 0.82 },
-    { x: 0.62, y: 0.32 },
-    { x: 0.72, y: 0.62 },
-    { x: 0.78, y: 0.18 },
-    { x: 0.88, y: 0.48 },
+    { x: 0.46, y: 0.42 },
+    { x: 0.54, y: 0.58 },
+    { x: 0.22, y: 0.28 },
+    { x: 0.78, y: 0.24 },
+    { x: 0.14, y: 0.62 },
+    { x: 0.88, y: 0.55 },
+    { x: 0.34, y: 0.18 },
+    { x: 0.66, y: 0.72 },
+    { x: 0.08, y: 0.40 },
+    { x: 0.92, y: 0.78 },
   ];
 
   // ============================================================
@@ -75,6 +83,7 @@
   const els = {
     stars: document.getElementById("stars"),
     sky: document.getElementById("sky"),
+    world: document.getElementById("world"),
     meteors: document.getElementById("meteors"),
     canvas: document.getElementById("particles"),
     selectionLabel: document.getElementById("selectionLabel"),
@@ -130,6 +139,20 @@
   /** 流れ星の一意ID採番用 */
   let meteorSeq = 0;
 
+  /** カメラ（ビューポート左上のワールド座標） */
+  let camX = 0;
+  let camY = 0;
+  /** ドラッグ操作の状態 */
+  let isPointerDown = false;
+  let isDragging = false;
+  let dragStartX = 0;
+  let dragStartY = 0;
+  let dragOriginCamX = 0;
+  let dragOriginCamY = 0;
+  /** ドラッグ後の click を無視するためのフラグ */
+  let suppressClick = false;
+  let activePointerId = null;
+
   /** @type {Array<{
    *   id: number,
    *   el: HTMLButtonElement,
@@ -172,6 +195,141 @@
       if (progress >= rule.min) return rule.phase;
     }
     return "initial";
+  }
+
+  // ============================================================
+  // カメラ（背景パン）
+  // ============================================================
+
+  /** ビューポート（プレイ画面）のサイズを取得する */
+  function getViewportSize() {
+    const rect = els.sky.getBoundingClientRect();
+    return { width: rect.width, height: rect.height };
+  }
+
+  /** カメラがワールド内に収まるようクランプする */
+  function clampCamera(x, y) {
+    const { width: vw, height: vh } = getViewportSize();
+    const maxX = Math.max(0, WORLD_WIDTH - vw);
+    const maxY = Math.max(0, WORLD_HEIGHT - vh);
+    return {
+      x: Math.min(maxX, Math.max(0, x)),
+      y: Math.min(maxY, Math.max(0, y)),
+    };
+  }
+
+  /**
+   * カメラ位置を反映する。
+   * パン中にパーティクルがずれないよう、差分だけ粒子座標も動かす。
+   */
+  function setCamera(nextX, nextY) {
+    const clamped = clampCamera(nextX, nextY);
+    const dx = clamped.x - camX;
+    const dy = clamped.y - camY;
+    if (dx === 0 && dy === 0) {
+      applyWorldTransform();
+      return;
+    }
+
+    camX = clamped.x;
+    camY = clamped.y;
+
+    // 視点固定の粒子は、ワールドが動いた分だけ逆方向へずらす
+    for (const p of particles) {
+      p.x -= dx;
+      p.y -= dy;
+    }
+
+    applyWorldTransform();
+  }
+
+  /** world 要素へ translate を適用する（カメラ＝左上原点） */
+  function applyWorldTransform() {
+    els.world.style.transform = `translate3d(${-camX}px, ${-camY}px, 0)`;
+  }
+
+  /** 初期表示：背景中央をプレイ画面の中心に合わせる */
+  function centerCameraOnWorld() {
+    const { width: vw, height: vh } = getViewportSize();
+    setCamera((WORLD_WIDTH - vw) / 2, (WORLD_HEIGHT - vh) / 2);
+  }
+
+  /** 星のワールド相対座標 → 画面（ビューポート）座標 */
+  function worldToScreen(wxRatio, wyRatio) {
+    return {
+      x: wxRatio * WORLD_WIDTH - camX,
+      y: wyRatio * WORLD_HEIGHT - camY,
+    };
+  }
+
+  /** 背景ドラッグ開始 */
+  function onPanPointerDown(event) {
+    if (celebrating) return;
+    if (event.button != null && event.button !== 0) return;
+
+    isPointerDown = true;
+    isDragging = false;
+    suppressClick = false;
+    activePointerId = event.pointerId;
+    dragStartX = event.clientX;
+    dragStartY = event.clientY;
+    dragOriginCamX = camX;
+    dragOriginCamY = camY;
+
+    try {
+      els.sky.setPointerCapture(event.pointerId);
+    } catch (_) {
+      /* ignore */
+    }
+  }
+
+  /** 背景ドラッグ中：カメラを移動 */
+  function onPanPointerMove(event) {
+    if (!isPointerDown || event.pointerId !== activePointerId) return;
+
+    const dx = event.clientX - dragStartX;
+    const dy = event.clientY - dragStartY;
+
+    if (!isDragging && Math.hypot(dx, dy) >= DRAG_THRESHOLD_PX) {
+      isDragging = true;
+      suppressClick = true;
+      els.sky.classList.add("is-dragging");
+    }
+
+    if (!isDragging) return;
+
+    // 指を右へ動かすと、背景は右へ追従（＝カメラは左へ）
+    setCamera(dragOriginCamX - dx, dragOriginCamY - dy);
+  }
+
+  /** 背景ドラッグ終了 */
+  function onPanPointerUp(event) {
+    if (event.pointerId !== activePointerId) return;
+
+    // ドラッグでなければ流れ星捕獲を試す
+    if (!isDragging && !celebrating) {
+      const meteor = findMeteorAt(event.clientX, event.clientY);
+      if (meteor) {
+        suppressClick = true;
+        catchMeteor(meteor);
+      }
+    }
+
+    isPointerDown = false;
+    isDragging = false;
+    activePointerId = null;
+    els.sky.classList.remove("is-dragging");
+
+    try {
+      els.sky.releasePointerCapture(event.pointerId);
+    } catch (_) {
+      /* ignore */
+    }
+
+    // click イベントより後でフラグを戻す
+    window.setTimeout(() => {
+      suppressClick = false;
+    }, 0);
   }
 
   // ============================================================
@@ -329,15 +487,8 @@
 
   /** 夜空へのポインタ入力。流れ星捕獲を優先して処理する */
   function onSkyPointerDown(event) {
-    if (celebrating) return;
-    if (event.button != null && event.button !== 0) return;
-
-    const meteor = findMeteorAt(event.clientX, event.clientY);
-    if (!meteor) return;
-
-    event.preventDefault();
-    event.stopPropagation();
-    catchMeteor(meteor);
+    // パン開始と兼用。捕獲は pointerup で判定する
+    onPanPointerDown(event);
   }
 
   /** 流れ星を捕獲し、願いのかけらを付与する */
@@ -478,6 +629,8 @@
    * - 完成済み / 祝福中: 無視
    */
   function onStarClick(id) {
+    // 背景ドラッグ直後の誤クリックを無視
+    if (suppressClick || isDragging) return;
     if (celebrating) return;
 
     const star = findStar(id);
@@ -593,7 +746,7 @@
       null;
 
     if (!displayStar) {
-      els.selectionLabel.textContent = "星を選んでください";
+      els.selectionLabel.textContent = "ドラッグで探して、星を選んでください";
       setProgress(0);
       els.remainingTime.textContent = "残り —";
       els.growBtn.disabled = true;
@@ -753,6 +906,8 @@
     // 以降の描画座標は CSS ピクセル基準で扱えるようにする
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     clearParticleCanvas();
+    // リサイズ後もカメラが枠外に出ないよう再クランプ
+    setCamera(camX, camY);
   }
 
   /**
@@ -771,12 +926,10 @@
     clearParticleCanvas();
   }
 
-  /** 星の相対座標を基準にパーティクルを発生させる */
+  /** 星のワールド座標を画面座標へ変換してパーティクルを発生させる */
   function spawnParticlesAt(star, count, colors, speedMin, speedMax, lifeMin, lifeMax) {
-    const rect = els.sky.getBoundingClientRect();
-    const cx = star.x * rect.width;
-    const cy = star.y * rect.height;
-    spawnBurstAt(cx, cy, count, colors, speedMin, speedMax, lifeMin, lifeMax);
+    const screen = worldToScreen(star.x, star.y);
+    spawnBurstAt(screen.x, screen.y, count, colors, speedMin, speedMax, lifeMin, lifeMax);
   }
 
   /** 指定座標から放射状にパーティクルを生成する */
@@ -916,15 +1069,25 @@
 
   /** 画面構築とイベント登録、最初の流れ星予約を行う */
   function init() {
+    // ワールドサイズを CSS 変数へ渡し、背景レイヤの寸法と揃える
+    els.sky.style.setProperty("--world-width", `${WORLD_WIDTH}px`);
+    els.sky.style.setProperty("--world-height", `${WORLD_HEIGHT}px`);
+    els.world.style.width = `${WORLD_WIDTH}px`;
+    els.world.style.height = `${WORLD_HEIGHT}px`;
+
     createStars();
     resizeCanvas();
+    centerCameraOnWorld();
     updatePanel();
     updateWishCounter();
-    appendLog("夜空の星を選んで、育成してみよう", "");
+    appendLog("背景をドラッグして、散らばる星を探そう", "");
     appendLog("流れ星をタップして、願いのかけらを集めよう", "wish");
 
     els.growBtn.addEventListener("click", startGrowth);
     els.sky.addEventListener("pointerdown", onSkyPointerDown);
+    els.sky.addEventListener("pointermove", onPanPointerMove);
+    els.sky.addEventListener("pointerup", onPanPointerUp);
+    els.sky.addEventListener("pointercancel", onPanPointerUp);
     window.addEventListener("resize", resizeCanvas);
 
     // 起動直後は少し待ってから最初の流れ星を出す

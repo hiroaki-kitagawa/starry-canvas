@@ -17,7 +17,7 @@
     <div class="app">
       <header class="header">
         <p class="brand">Starry Canvas</p>
-        <p class="tagline">夜空の星を育てて、キャラクターにしよう</p>
+        <p class="tagline">背景をドラッグして星を探し、育てよう</p>
         <!-- 流れ星で集めた願いのかけら所持数 -->
         <p id="wishCounter" class="wish-counter" aria-live="polite">
           願いのかけら <span id="wishCount">0</span>
@@ -25,10 +25,13 @@
       </header>
 
       <main class="stage-wrap">
-        <!-- 星・流れ星・パーティクルを重ねるプレイ領域 -->
+        <!-- 視点（ビューポート）。内部の world をドラッグでパンする -->
         <div id="sky" class="sky" aria-label="夜空ステージ" role="application">
-          <div class="sky-dust" aria-hidden="true"></div>
-          <div id="stars" class="stars"></div>
+          <div id="world" class="world">
+            <div class="world-bg" aria-hidden="true"></div>
+            <div id="stars" class="stars"></div>
+          </div>
+          <!-- 流れ星・パーティクルは視点固定（画面上を飛ぶ／描画する） -->
           <div id="meteors" class="meteors" aria-hidden="false"></div>
           <canvas id="particles" class="particles" aria-hidden="true"></canvas>
         </div>
