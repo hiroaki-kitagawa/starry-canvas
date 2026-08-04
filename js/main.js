@@ -249,12 +249,7 @@
     dragStartY = event.clientY;
     dragOriginCamX = camX;
     dragOriginCamY = camY;
-
-    try {
-      els.sky.setPointerCapture(event.pointerId);
-    } catch (_) {
-      /* ignore */
-    }
+    // pointer capture はドラッグ確定後に行う（即キャプチャすると星の click が消える）
   }
 
   /** 背景ドラッグ中：カメラを移動 */
@@ -268,6 +263,11 @@
       isDragging = true;
       suppressClick = true;
       els.sky.classList.add("is-dragging");
+      try {
+        els.sky.setPointerCapture(event.pointerId);
+      } catch (_) {
+        /* ignore */
+      }
     }
 
     if (!isDragging) return;
@@ -280,21 +280,60 @@
   function onPanPointerUp(event) {
     if (event.pointerId !== activePointerId) return;
 
+    const wasDragging = isDragging;
+
     isPointerDown = false;
     isDragging = false;
     activePointerId = null;
     els.sky.classList.remove("is-dragging");
 
     try {
-      els.sky.releasePointerCapture(event.pointerId);
+      if (els.sky.hasPointerCapture?.(event.pointerId)) {
+        els.sky.releasePointerCapture(event.pointerId);
+      }
     } catch (_) {
       /* ignore */
     }
 
-    // click イベントより後でフラグを戻す
+    // ドラッグでなければ、ポインタ位置の星を選択／応援する
+    if (!wasDragging && !celebrating) {
+      const star = findStarAtPoint(event.clientX, event.clientY);
+      if (star) {
+        onStarClick(star.id);
+        // 後続の click イベントでの二重処理を防ぐ
+        suppressClick = true;
+      }
+    }
+
     window.setTimeout(() => {
       suppressClick = false;
     }, 0);
+  }
+
+  /**
+   * 画面座標から最も近いクリック可能な星を返す。
+   * 星が小さくても押しやすいよう判定半径を広めにとる。
+   */
+  function findStarAtPoint(clientX, clientY) {
+    let best = null;
+    let bestDist = Infinity;
+    const hitRadius = 28;
+
+    for (const star of stars) {
+      if (star.status === "completed") continue;
+      if (growingId && star.id !== growingId) continue;
+
+      const r = star.el.getBoundingClientRect();
+      const cx = r.left + r.width / 2;
+      const cy = r.top + r.height / 2;
+      const dist = Math.hypot(clientX - cx, clientY - cy);
+      const radius = Math.max(hitRadius, Math.max(r.width, r.height) / 2 + 6);
+      if (dist <= radius && dist < bestDist) {
+        best = star;
+        bestDist = dist;
+      }
+    }
+    return best;
   }
 
   /** 夜空へのポインタ入力（背景パン開始） */
