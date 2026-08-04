@@ -91,7 +91,7 @@
   let wishFragments = 0;
   let meteorTimerId = null;
   let meteorSeq = 0;
-  const METEOR_CATCH_RADIUS = 48;
+  const METEOR_CATCH_RADIUS = 32;
 
   /** @type {Array<{
    *   id: number,
