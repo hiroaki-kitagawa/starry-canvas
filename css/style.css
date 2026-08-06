@@ -217,17 +217,17 @@ body {
 /* --- 育成対象の星（光点 / 完成キャラ） --- */
 .star {
   position: absolute;
-  width: 14px;
-  height: 14px;
-  margin: -7px 0 0 -7px;
+  width: 28px;
+  height: 28px;
+  margin: -14px 0 0 -14px;
   border: none;
   padding: 0;
   border-radius: 50%;
   cursor: pointer;
   background: var(--star-initial);
   box-shadow:
-    0 0 6px 2px color-mix(in srgb, var(--star-color, var(--star-initial)) 70%, transparent),
-    0 0 16px 4px color-mix(in srgb, var(--star-color, var(--star-initial)) 40%, transparent);
+    0 0 12px 4px color-mix(in srgb, var(--star-color, var(--star-initial)) 85%, transparent),
+    0 0 30px 10px color-mix(in srgb, var(--star-color, var(--star-initial)) 55%, transparent);
   --star-color: var(--star-initial);
   background: var(--star-color);
   transition:
@@ -236,14 +236,33 @@ body {
     background-color 0.35s ease;
   animation: twinkle 2.8s ease-in-out infinite;
   z-index: 2;
+  isolation: isolate;
   /* 見た目より広い当たり判定（疑似要素） */
   touch-action: none;
+}
+
+.star::before {
+  content: "";
+  position: absolute;
+  inset: -18px;
+  border-radius: 50%;
+  background: radial-gradient(
+    circle,
+    color-mix(in srgb, var(--star-color, var(--star-initial)) 55%, #ffffff) 0%,
+    color-mix(in srgb, var(--star-color, var(--star-initial)) 45%, transparent) 55%,
+    transparent 100%
+  );
+  opacity: 0.9;
+  filter: blur(2px);
+  pointer-events: none;
+  z-index: -1;
+  animation: halo-breathe 2.4s ease-in-out infinite;
 }
 
 .star::after {
   content: "";
   position: absolute;
-  inset: -14px;
+  inset: -18px;
   border-radius: 50%;
 }
 
@@ -258,12 +277,24 @@ body {
 @keyframes twinkle {
   0%,
   100% {
-    opacity: 0.75;
+    opacity: 0.82;
     transform: scale(1);
   }
   50% {
     opacity: 1;
-    transform: scale(1.15);
+    transform: scale(1.2);
+  }
+}
+
+@keyframes halo-breathe {
+  0%,
+  100% {
+    opacity: 0.72;
+    transform: scale(0.9);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.08);
   }
 }
 
@@ -315,10 +346,10 @@ body {
 }
 
 .star.is-completed {
-  width: 64px;
-  height: 64px;
-  margin: -32px 0 0 -32px;
-  border-radius: 16px;
+  width: 128px;
+  height: 128px;
+  margin: -64px 0 0 -64px;
+  border-radius: 28px;
   background: transparent;
   box-shadow: none;
   outline: none;
@@ -331,7 +362,7 @@ body {
   width: 100%;
   height: 100%;
   object-fit: contain;
-  filter: drop-shadow(0 0 10px rgba(200, 220, 255, 0.55));
+  filter: drop-shadow(0 0 18px rgba(220, 236, 255, 0.78));
   pointer-events: none;
 }
 

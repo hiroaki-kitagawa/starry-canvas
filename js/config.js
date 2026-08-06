@@ -1,11 +1,15 @@
+// ============================================================
+// 定数・設定値
+// ============================================================
+
 /** 夜空に配置する星の個数 */
 export const STAR_COUNT = 10;
 /** 星1つあたりの育成時間（ミリ秒）。仕様どおり1分 */
 export const GROWTH_DURATION_MS = 60_000;
-
 /**
  * 進捗に応じた星の色フェーズ判定テーブル。
  * 大きい閾値から順に照合する。
+ * 初期＝黄 / 25%＝青 / 50%＝赤 / 75%＝紫
  */
 export const COLOR_THRESHOLDS = [
   { min: 75, phase: "purple" },
@@ -13,7 +17,6 @@ export const COLOR_THRESHOLDS = [
   { min: 25, phase: "blue" },
   { min: 0, phase: "initial" },
 ];
-
 /** 完成時の祝福バナー／操作ロックの長さ */
 export const CELEBRATE_MS = 2200;
 /** 応援タップ1回あたりの育成短縮量 */
@@ -24,18 +27,15 @@ export const CHEER_MAX_TOTAL_MS = 5_000;
 export const CHEER_COOLDOWN_MS = 350;
 /** 成長ログに同時表示する最大件数 */
 export const LOG_MAX_ITEMS = 4;
-
 /** 背景ワールドのサイズ（background.png の実寸） */
 export const WORLD_WIDTH = 2752;
 export const WORLD_HEIGHT = 1536;
-
 /** この距離以上動いたらドラッグ扱い（クリックと区別） */
 export const DRAG_THRESHOLD_PX = 8;
 /** ズームの最小・最大・変更幅 */
 export const ZOOM_MIN = 0.75;
 export const ZOOM_MAX = 1.5;
 export const ZOOM_STEP = 0.25;
-
 /** 全星完成時に表示するお祝い文言 */
 export const COMPLETION_POPUP = {
   title: "おめでとう！",
@@ -43,7 +43,10 @@ export const COMPLETION_POPUP = {
     "10個すべての星を育て終えました。ここまで育ててくれて、本当にありがとう。あなたのやさしさで、この夜空はもっときらきらになったよ。",
 };
 
-/** 完成済みキャラクターをクリックしたときに表示するメッセージ */
+/**
+ * 完成済みキャラクターをクリックしたときに表示するメッセージ。
+ * すべて「育ててくれてありがとう」「おめでとう」を軸にした文面。
+ */
 export const CHARACTER_MESSAGES = [
   {
     title: "星 01 のキャラクター",
@@ -105,7 +108,10 @@ export const CHEER_LOG_LINES = [
   "あなたの声援、受け取った！",
 ];
 
-/** 育成星の配置（相対 0〜1） */
+/**
+ * 育成星の配置（ワールド全体に散りばめる。相対 0〜1）。
+ * 中央付近にも数個置き、初期視点から探し始められるようにする。
+ */
 export const STAR_POSITIONS = [
   { x: 0.46, y: 0.42 },
   { x: 0.54, y: 0.58 },
@@ -115,6 +121,6 @@ export const STAR_POSITIONS = [
   { x: 0.88, y: 0.55 },
   { x: 0.34, y: 0.18 },
   { x: 0.66, y: 0.72 },
-  { x: 0.08, y: 0.40 },
+  { x: 0.08, y: 0.4 },
   { x: 0.92, y: 0.78 },
 ];

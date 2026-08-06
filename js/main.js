@@ -18,700 +18,1009 @@ import {
   CHEER_LOG_LINES,
   STAR_POSITIONS,
 } from "./config.js";
+import { pad2, formatRemaining, getColorPhase } from "./utils.js";
 
-import { pad2, formatRemaining, getColorPhase, createPlaceholderSvg } from "./utils.js";
+  // ============================================================
+  // DOM参照・ゲーム状態
+  // ============================================================
 
-import {
-  initParticles,
-  hasParticles,
-  clearAllParticles,
-  shiftParticles,
-  resizeParticleCanvas,
-  spawnCelebrateParticles,
-  spawnCheerParticles,
-  updateParticles,
-} from "./particles.js";
-
-// DOM参照
-const els = {
-  stars: document.getElementById("stars"),
-  sky: document.getElementById("sky"),
-  world: document.getElementById("world"),
-  zoomIn: document.getElementById("zoomIn"),
-  zoomOut: document.getElementById("zoomOut"),
-  zoomInput: document.getElementById("zoomInput"),
-  zoomLevel: document.getElementById("zoomLevel"),
-  canvas: document.getElementById("particles"),
-  selectionLabel: document.getElementById("selectionLabel"),
-  progressTrack: document.getElementById("progressTrack"),
-  progressFill: document.getElementById("progressFill"),
-  progressPercent: document.getElementById("progressPercent"),
-  remainingTime: document.getElementById("remainingTime"),
-  growBtn: document.getElementById("growBtn"),
-  celebrateBanner: document.getElementById("celebrateBanner"),
-  growthLog: document.getElementById("growthLog"),
-  characterPopup: document.getElementById("characterPopup"),
-  characterPopupClose: document.getElementById("characterPopupClose"),
-  characterPopupImage: document.getElementById("characterPopupImage"),
-  characterPopupTitle: document.getElementById("characterPopupTitle"),
-  characterPopupMessage: document.getElementById("characterPopupMessage"),
-  completionPopup: document.getElementById("completionPopup"),
-  completionPopupClose: document.getElementById("completionPopupClose"),
-  completionPopupTitle: document.getElementById("completionPopupTitle"),
-  completionPopupMessage: document.getElementById("completionPopupMessage"),
-};
-
-let stars = [];
-let selectedId = null;
-let growingId = null;
-let growthStartMs = 0;
-let celebrating = false;
-let rafId = null;
-let cheerBoostAppliedMs = 0;
-let lastCheerMs = 0;
-let cheerLogIndex = 0;
-let activePopupStarId = null;
-let completionPopupShown = false;
-let pendingCompletionPopup = false;
-let zoom = 1;
-
-let camX = 0;
-let camY = 0;
-let isPointerDown = false;
-let isDragging = false;
-let dragStartX = 0;
-let dragStartY = 0;
-let dragOriginCamX = 0;
-let dragOriginCamY = 0;
-let suppressClick = false;
-let activePointerId = null;
-
-function getViewportSize() {
-  const rect = els.sky.getBoundingClientRect();
-  return { width: rect.width, height: rect.height };
-}
-
-function clampCamera(x, y) {
-  const { width: vw, height: vh } = getViewportSize();
-  const maxX = Math.max(0, WORLD_WIDTH - vw / zoom);
-  const maxY = Math.max(0, WORLD_HEIGHT - vh / zoom);
-  return {
-    x: Math.min(maxX, Math.max(0, x)),
-    y: Math.min(maxY, Math.max(0, y)),
+  const els = {
+    stars: document.getElementById("stars"),
+    sky: document.getElementById("sky"),
+    world: document.getElementById("world"),
+    zoomIn: document.getElementById("zoomIn"),
+    zoomOut: document.getElementById("zoomOut"),
+    zoomInput: document.getElementById("zoomInput"),
+    zoomLevel: document.getElementById("zoomLevel"),
+    canvas: document.getElementById("particles"),
+    selectionLabel: document.getElementById("selectionLabel"),
+    progressTrack: document.getElementById("progressTrack"),
+    progressFill: document.getElementById("progressFill"),
+    progressPercent: document.getElementById("progressPercent"),
+    remainingTime: document.getElementById("remainingTime"),
+    growBtn: document.getElementById("growBtn"),
+    celebrateBanner: document.getElementById("celebrateBanner"),
+    growthLog: document.getElementById("growthLog"),
+    characterPopup: document.getElementById("characterPopup"),
+    characterPopupClose: document.getElementById("characterPopupClose"),
+    characterPopupImage: document.getElementById("characterPopupImage"),
+    characterPopupTitle: document.getElementById("characterPopupTitle"),
+    characterPopupMessage: document.getElementById("characterPopupMessage"),
+    completionPopup: document.getElementById("completionPopup"),
+    completionPopupClose: document.getElementById("completionPopupClose"),
+    completionPopupTitle: document.getElementById("completionPopupTitle"),
+    completionPopupMessage: document.getElementById("completionPopupMessage"),
   };
-}
 
-function setCamera(nextX, nextY) {
-  const clamped = clampCamera(nextX, nextY);
-  const dx = clamped.x - camX;
-  const dy = clamped.y - camY;
-  if (dx === 0 && dy === 0) {
-    applyWorldTransform();
-    return;
+  const ctx = els.canvas.getContext("2d");
+
+  /** @type {Array<{
+   *   id: string,
+   *   index: number,
+   *   x: number,
+   *   y: number,
+   *   progress: number,
+   *   status: "idle" | "selected" | "growing" | "completed",
+   *   colorPhase: string,
+   *   characterImageUrl: string,
+   *   el: HTMLButtonElement,
+   *   loggedMilestones: Set<string>,
+   * }>} */
+  let stars = [];
+  /** 現在選択中の星ID（未選択時は null） */
+  let selectedId = null;
+  /** 育成中の星ID（同時育成は1つのみ） */
+  let growingId = null;
+  /**
+   * 育成開始時刻（performance.now 基準）。
+   * 応援で短縮するときはこの値を手前にずらす。
+   */
+  let growthStartMs = 0;
+  /** 祝福演出中は操作をロックする */
+  let celebrating = false;
+  /** requestAnimationFrame のハンドル */
+  let rafId = null;
+  /** 現在の育成セッションで既に適用した応援短縮量 */
+  let cheerBoostAppliedMs = 0;
+  /** 直前の応援タップ時刻（クールダウン用） */
+  let lastCheerMs = 0;
+  /** 応援ログ文言のローテーション用インデックス */
+  let cheerLogIndex = 0;
+  /** 直前に開いたキャラクターポップアップ */
+  let activePopupStarId = null;
+  /** 全星完成ポップアップを1度だけ表示するためのフラグ */
+  let completionPopupShown = false;
+  /** 全星完成ポップアップを後で出すためのフラグ */
+  let pendingCompletionPopup = false;
+  /** ズーム倍率 */
+  let zoom = 1;
+
+  /** カメラ（ビューポート左上のワールド座標） */
+  let camX = 0;
+  let camY = 0;
+  /** ドラッグ操作の状態 */
+  let isPointerDown = false;
+  let isDragging = false;
+  let dragStartX = 0;
+  let dragStartY = 0;
+  let dragOriginCamX = 0;
+  let dragOriginCamY = 0;
+  /** ドラッグ後の click を無視するためのフラグ */
+  let suppressClick = false;
+  let activePointerId = null;
+
+  /** @type {Array<{
+   *   x: number, y: number, vx: number, vy: number,
+   *   life: number, maxLife: number, size: number, color: string
+   * }>} */
+  let particles = [];
+
+  // ============================================================
+  // カメラ（背景パン）
+  // ============================================================
+
+  /** ビューポート（プレイ画面）のサイズを取得する */
+  function getViewportSize() {
+    const rect = els.sky.getBoundingClientRect();
+    return { width: rect.width, height: rect.height };
   }
 
-  camX = clamped.x;
-  camY = clamped.y;
-
-  shiftParticles(dx, dy, zoom);
-  applyWorldTransform();
-}
-
-function applyWorldTransform() {
-  els.world.style.transform = `translate3d(${-camX * zoom}px, ${-camY * zoom}px, 0) scale(${zoom})`;
-  if (activePopupStarId) {
-    const star = findStar(activePopupStarId);
-    if (star) updateCharacterPopupPosition(star);
-  }
-}
-
-function centerCameraOnWorld() {
-  const { width: vw, height: vh } = getViewportSize();
-  setCamera((WORLD_WIDTH - vw / zoom) / 2, (WORLD_HEIGHT - vh / zoom) / 2);
-}
-
-function worldToScreen(wxRatio, wyRatio) {
-  return {
-    x: (wxRatio * WORLD_WIDTH - camX) * zoom,
-    y: (wyRatio * WORLD_HEIGHT - camY) * zoom,
-  };
-}
-
-function updateZoomUI() {
-  els.zoomLevel.textContent = `${Math.round(zoom * 100)}%`;
-  if (document.activeElement !== els.zoomInput) {
-    els.zoomInput.value = `${Math.round(zoom * 100)}`;
-  }
-}
-
-function applyZoomInputValue() {
-  const raw = Number(els.zoomInput.value);
-  if (!Number.isFinite(raw)) {
-    updateZoomUI();
-    return;
-  }
-  setZoom(raw / 100);
-}
-
-function setZoom(nextZoom, anchorX, anchorY) {
-  const clampedZoom = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, nextZoom));
-  if (clampedZoom === zoom) return;
-
-  const { width: vw, height: vh } = getViewportSize();
-  const ax = Number.isFinite(anchorX) ? anchorX : vw / 2;
-  const ay = Number.isFinite(anchorY) ? anchorY : vh / 2;
-  const worldAnchorX = camX + ax / zoom;
-  const worldAnchorY = camY + ay / zoom;
-
-  zoom = clampedZoom;
-  setCamera(worldAnchorX - ax / zoom, worldAnchorY - ay / zoom);
-  clearAllParticles();
-  updateZoomUI();
-  updatePanel();
-  if (activePopupStarId) {
-    const star = findStar(activePopupStarId);
-    if (star) updateCharacterPopupPosition(star);
-  }
-}
-
-function onPanPointerDown(event) {
-  if (celebrating) return;
-  if (event.button != null && event.button !== 0) return;
-
-  isPointerDown = true;
-  isDragging = false;
-  suppressClick = false;
-  activePointerId = event.pointerId;
-  dragStartX = event.clientX;
-  dragStartY = event.clientY;
-  dragOriginCamX = camX;
-  dragOriginCamY = camY;
-}
-
-function onPanPointerMove(event) {
-  if (!isPointerDown || event.pointerId !== activePointerId) return;
-
-  const dx = event.clientX - dragStartX;
-  const dy = event.clientY - dragStartY;
-
-  if (!isDragging && Math.hypot(dx, dy) >= DRAG_THRESHOLD_PX) {
-    isDragging = true;
-    suppressClick = true;
-    els.sky.classList.add("is-dragging");
-    try {
-      els.sky.setPointerCapture(event.pointerId);
-    } catch (_) {}
-  }
-
-  if (!isDragging) return;
-  setCamera(dragOriginCamX - dx / zoom, dragOriginCamY - dy / zoom);
-}
-
-function onPanPointerUp(event) {
-  if (event.pointerId !== activePointerId) return;
-
-  const wasDragging = isDragging;
-  isPointerDown = false;
-  isDragging = false;
-  activePointerId = null;
-  els.sky.classList.remove("is-dragging");
-
-  try {
-    if (els.sky.hasPointerCapture?.(event.pointerId)) {
-      els.sky.releasePointerCapture(event.pointerId);
-    }
-  } catch (_) {}
-
-  if (!wasDragging && !celebrating) {
-    const star = findStarAtPoint(event.clientX, event.clientY);
-    if (star) {
-      onStarClick(star.id);
-      suppressClick = true;
-    }
-  }
-
-  window.setTimeout(() => {
-    suppressClick = false;
-  }, 0);
-}
-
-function findStarAtPoint(clientX, clientY) {
-  let best = null;
-  let bestDist = Infinity;
-  const hitRadius = 28;
-
-  for (const star of stars) {
-    if (star.status === "completed") continue;
-    if (growingId && star.id !== growingId) continue;
-
-    const r = star.el.getBoundingClientRect();
-    const cx = r.left + r.width / 2;
-    const cy = r.top + r.height / 2;
-    const dist = Math.hypot(clientX - cx, clientY - cy);
-    const radius = Math.max(hitRadius, Math.max(r.width, r.height) / 2 + 6);
-    if (dist <= radius && dist < bestDist) {
-      best = star;
-      bestDist = dist;
-    }
-  }
-  return best;
-}
-
-function appendLog(text, kind = "") {
-  const li = document.createElement("li");
-  if (kind) li.classList.add(`is-${kind}`);
-  li.textContent = text;
-  els.growthLog.appendChild(li);
-
-  while (els.growthLog.children.length > LOG_MAX_ITEMS) {
-    els.growthLog.removeChild(els.growthLog.firstElementChild);
-  }
-  els.growthLog.scrollTop = els.growthLog.scrollHeight;
-}
-
-function clearLog() {
-  els.growthLog.replaceChildren();
-}
-
-function maybeLogMilestones(star) {
-  for (const milestone of GROWTH_MILESTONES) {
-    if (star.progress < milestone.min) continue;
-    if (star.loggedMilestones.has(milestone.id)) continue;
-    if (milestone.id === "start") continue;
-    star.loggedMilestones.add(milestone.id);
-    appendLog(milestone.text, "milestone");
-  }
-}
-
-function createStars() {
-  stars = STAR_POSITIONS.slice(0, STAR_COUNT).map((pos, i) => {
-    const index = i + 1;
-    const id = `star-${pad2(index)}`;
-    const btn = document.createElement("button");
-    btn.type = "button";
-    btn.className = "star phase-initial";
-    btn.dataset.id = id;
-    btn.style.left = `${pos.x * 100}%`;
-    btn.style.top = `${pos.y * 100}%`;
-    btn.setAttribute("aria-label", `星 ${index}`);
-    btn.addEventListener("click", () => onStarClick(id));
-    els.stars.appendChild(btn);
-
+  /** カメラがワールド内に収まるようクランプする */
+  function clampCamera(x, y) {
+    const { width: vw, height: vh } = getViewportSize();
+    const maxX = Math.max(0, WORLD_WIDTH - vw / zoom);
+    const maxY = Math.max(0, WORLD_HEIGHT - vh / zoom);
     return {
-      id,
-      index,
-      x: pos.x,
-      y: pos.y,
-      progress: 0,
-      status: "idle",
-      colorPhase: "initial",
-      characterImageUrl: `assets/characters/star-${pad2(index)}.png`,
-      el: btn,
-      loggedMilestones: new Set(),
+      x: Math.min(maxX, Math.max(0, x)),
+      y: Math.min(maxY, Math.max(0, y)),
     };
-  });
-}
-
-function findStar(id) {
-  return stars.find((s) => s.id === id) || null;
-}
-
-function onStarClick(id) {
-  if (suppressClick || isDragging || celebrating) return;
-
-  const star = findStar(id);
-  if (!star) return;
-
-  if (star.status === "completed") {
-    openCharacterPopup(star);
-    return;
   }
 
-  if (growingId) {
-    if (id === growingId) cheerStar(star);
-    return;
+  /**
+   * カメラ位置を反映する。
+   * パン中にパーティクルがずれないよう、差分だけ粒子座標も動かす。
+   */
+  function setCamera(nextX, nextY) {
+    const clamped = clampCamera(nextX, nextY);
+    const dx = clamped.x - camX;
+    const dy = clamped.y - camY;
+    if (dx === 0 && dy === 0) {
+      applyWorldTransform();
+      return;
+    }
+
+    camX = clamped.x;
+    camY = clamped.y;
+
+    // 視点固定の粒子は、ワールドが動いた分だけ逆方向へずらす
+    // 画面移動量はズーム倍率分だけ大きくなる
+    for (const p of particles) {
+      p.x -= dx * zoom;
+      p.y -= dy * zoom;
+    }
+
+    applyWorldTransform();
   }
 
-  if (selectedId && selectedId !== id) {
-    const prev = findStar(selectedId);
-    if (prev && prev.status === "selected") {
-      prev.status = "idle";
-      syncStarElement(prev);
+  /** world 要素へ translate を適用する（カメラ＝左上原点） */
+  function applyWorldTransform() {
+    els.world.style.transform = `translate3d(${-camX * zoom}px, ${-camY * zoom}px, 0) scale(${zoom})`;
+    if (activePopupStarId) {
+      const star = findStar(activePopupStarId);
+      if (star) updateCharacterPopupPosition(star);
     }
   }
 
-  selectedId = id;
-  star.status = "selected";
-  syncStarElement(star);
-  updatePanel();
-}
-
-function cheerStar(star) {
-  if (celebrating || star.id !== growingId) return;
-
-  const now = performance.now();
-  if (now - lastCheerMs < CHEER_COOLDOWN_MS) return;
-  lastCheerMs = now;
-
-  const remainingBudget = CHEER_MAX_TOTAL_MS - cheerBoostAppliedMs;
-  if (remainingBudget > 0) {
-    const boost = Math.min(CHEER_BOOST_MS, remainingBudget);
-    cheerBoostAppliedMs += boost;
-    growthStartMs -= boost;
+  /** 初期表示：背景中央をプレイ画面の中心に合わせる */
+  function centerCameraOnWorld() {
+    const { width: vw, height: vh } = getViewportSize();
+    setCamera((WORLD_WIDTH - vw / zoom) / 2, (WORLD_HEIGHT - vh / zoom) / 2);
   }
 
-  const screen = worldToScreen(star.x, star.y);
-  spawnCheerParticles(screen.x, screen.y);
+  /** 星のワールド相対座標 → 画面（ビューポート）座標 */
+  function worldToScreen(wxRatio, wyRatio) {
+    return {
+      x: (wxRatio * WORLD_WIDTH - camX) * zoom,
+      y: (wyRatio * WORLD_HEIGHT - camY) * zoom,
+    };
+  }
 
-  star.el.classList.remove("is-cheered");
-  void star.el.offsetWidth;
-  star.el.classList.add("is-cheered");
-  window.setTimeout(() => star.el.classList.remove("is-cheered"), 360);
-
-  const line = CHEER_LOG_LINES[cheerLogIndex % CHEER_LOG_LINES.length];
-  cheerLogIndex += 1;
-  appendLog(line, "cheer");
-  ensureLoop();
-}
-
-function syncStarElement(star) {
-  const { el } = star;
-  const wasCheered = el.classList.contains("is-cheered");
-  el.className = "star";
-  el.classList.add(`phase-${star.colorPhase}`);
-  if (wasCheered) el.classList.add("is-cheered");
-
-  if (star.status === "selected") el.classList.add("is-selected");
-  if (star.status === "growing") el.classList.add("is-growing");
-  if (star.status === "completed") {
-    el.classList.add("is-completed");
-    el.disabled = false;
-    el.setAttribute("aria-label", `星 ${star.index}（クリックでメッセージ）`);
-    if (!el.querySelector("img")) {
-      const img = document.createElement("img");
-      img.alt = `星 ${star.index} のキャラクター`;
-      img.src = createPlaceholderSvg(star.index);
-      const probe = new Image();
-      probe.onload = () => {
-        img.src = star.characterImageUrl;
-      };
-      probe.src = star.characterImageUrl;
-      el.appendChild(img);
+  /** ズーム表示を更新する */
+  function updateZoomUI() {
+    els.zoomLevel.textContent = `${Math.round(zoom * 100)}%`;
+    if (document.activeElement !== els.zoomInput) {
+      els.zoomInput.value = `${Math.round(zoom * 100)}`;
     }
-  } else if (growingId && growingId === star.id) {
-    el.disabled = false;
-    el.setAttribute("aria-label", `星 ${star.index}（タップで応援）`);
-  } else {
-    el.disabled = Boolean(growingId && growingId !== star.id);
-    el.setAttribute("aria-label", `星 ${star.index}`);
-  }
-}
-
-function syncAllStars() {
-  for (const star of stars) syncStarElement(star);
-}
-
-function updatePanel() {
-  const star = selectedId ? findStar(selectedId) : null;
-  const displayStar = (growingId && findStar(growingId)) || star || null;
-
-  if (!displayStar) {
-    els.selectionLabel.textContent = "ドラッグで探して、星を選んでください";
-    setProgress(0);
-    els.remainingTime.textContent = "残り —";
-    els.growBtn.disabled = true;
-    els.growBtn.textContent = "育成";
-    return;
   }
 
-  if (displayStar.status === "completed") {
-    els.selectionLabel.textContent = `星 ${displayStar.index} — 完成（クリックでメッセージ）`;
-    setProgress(100);
-    els.remainingTime.textContent = "残り 00:00";
-    els.growBtn.disabled = true;
-    els.growBtn.textContent = "完成";
-    return;
+  /** ズーム入力欄の値を反映する */
+  function applyZoomInputValue() {
+    const raw = Number(els.zoomInput.value);
+    if (!Number.isFinite(raw)) {
+      updateZoomUI();
+      return;
+    }
+
+    setZoom(raw / 100);
   }
 
-  els.selectionLabel.textContent =
-    displayStar.status === "growing"
-      ? `星 ${displayStar.index} を育成中… タップで応援！`
-      : `選択中: 星 ${displayStar.index}`;
+  /** 指定座標を中心にズーム倍率を変更する */
+  function setZoom(nextZoom, anchorX, anchorY) {
+    const clampedZoom = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, nextZoom));
+    if (clampedZoom === zoom) return;
 
-  setProgress(displayStar.progress);
+    const { width: vw, height: vh } = getViewportSize();
+    const ax = Number.isFinite(anchorX) ? anchorX : vw / 2;
+    const ay = Number.isFinite(anchorY) ? anchorY : vh / 2;
+    const worldAnchorX = camX + ax / zoom;
+    const worldAnchorY = camY + ay / zoom;
 
-  const remainingMs = GROWTH_DURATION_MS * (1 - displayStar.progress / 100);
-  els.remainingTime.textContent =
-    displayStar.status === "growing" || displayStar.progress > 0
-      ? formatRemaining(remainingMs)
-      : formatRemaining(GROWTH_DURATION_MS);
-
-  const canGrow =
-    !celebrating &&
-    !growingId &&
-    displayStar.status === "selected" &&
-    displayStar.progress < 100;
-
-  els.growBtn.disabled = !canGrow;
-  els.growBtn.textContent = growingId ? "育成中…" : "育成";
-}
-
-function setProgress(progress) {
-  const pct = Math.max(0, Math.min(100, progress));
-  const shown = Math.floor(pct);
-  els.progressFill.style.width = `${pct}%`;
-  els.progressPercent.textContent = `${shown}%`;
-  els.progressTrack.setAttribute("aria-valuenow", String(shown));
-}
-
-function openCharacterPopup(star) {
-  if (activePopupStarId === star.id && !els.characterPopup.hidden) {
-    updateCharacterPopupPosition(star);
-    return;
-  }
-
-  const info = CHARACTER_MESSAGES[star.index - 1] || {
-    title: `星 ${pad2(star.index)} のキャラクター`,
-    message: "育ててくれてありがとう。おめでとう、きみのおかげでここまで来られたよ。",
-  };
-
-  activePopupStarId = star.id;
-  els.characterPopupTitle.textContent = info.title;
-  els.characterPopupMessage.textContent = info.message;
-  els.characterPopupImage.alt = info.title;
-
-  const img = star.el.querySelector("img");
-  els.characterPopupImage.src = img ? img.src : star.characterImageUrl;
-
-  els.characterPopup.hidden = false;
-  els.characterPopup.setAttribute("aria-hidden", "false");
-  updateCharacterPopupPosition(star);
-}
-
-function closeCharacterPopup() {
-  activePopupStarId = null;
-  els.characterPopup.hidden = true;
-  els.characterPopup.setAttribute("aria-hidden", "true");
-  if (pendingCompletionPopup && stars.every((s) => s.status === "completed")) {
-    pendingCompletionPopup = false;
-    openCompletionPopup();
-  }
-}
-
-function updateCharacterPopupPosition(star) {
-  if (!star || els.characterPopup.hidden) return;
-
-  const screen = worldToScreen(star.x, star.y);
-  const { width: vw, height: vh } = getViewportSize();
-  const left = Math.min(vw - 24, Math.max(24, screen.x));
-  const top = Math.min(vh - 32, Math.max(44, screen.y - 24));
-
-  const card = els.characterPopup.querySelector(".character-popup__card");
-  if (!card) return;
-  card.style.left = `${left}px`;
-  card.style.top = `${top}px`;
-}
-
-function openCompletionPopup() {
-  if (completionPopupShown && !els.completionPopup.hidden) return;
-  completionPopupShown = true;
-  els.completionPopupTitle.textContent = COMPLETION_POPUP.title;
-  els.completionPopupMessage.textContent = COMPLETION_POPUP.message;
-  els.completionPopup.hidden = false;
-  els.completionPopup.setAttribute("aria-hidden", "false");
-}
-
-function closeCompletionPopup() {
-  els.completionPopup.hidden = true;
-  els.completionPopup.setAttribute("aria-hidden", "true");
-}
-
-function startGrowth() {
-  if (celebrating || growingId || !selectedId) return;
-  const star = findStar(selectedId);
-  if (!star || star.status !== "selected") return;
-
-  growingId = star.id;
-  star.status = "growing";
-  cheerBoostAppliedMs = 0;
-  lastCheerMs = 0;
-  growthStartMs = performance.now() - (star.progress / 100) * GROWTH_DURATION_MS;
-
-  clearLog();
-  star.loggedMilestones.add("start");
-  appendLog(GROWTH_MILESTONES[0].text, "milestone");
-
-  syncAllStars();
-  updatePanel();
-  ensureLoop();
-}
-
-function applyProgress(star, progress) {
-  star.progress = progress;
-  const phase = getColorPhase(progress);
-  if (phase !== star.colorPhase) {
-    star.colorPhase = phase;
-    syncStarElement(star);
-  }
-  maybeLogMilestones(star);
-}
-
-function completeStar(star) {
-  growingId = null;
-  selectedId = star.id;
-  star.progress = 100;
-  star.status = "completed";
-  star.colorPhase = "purple";
-  maybeLogMilestones(star);
-  syncAllStars();
-  updatePanel();
-  celebrate(star);
-}
-
-function celebrate(star) {
-  celebrating = true;
-  els.growBtn.disabled = true;
-
-  const screen = worldToScreen(star.x, star.y);
-  spawnCelebrateParticles(screen.x, screen.y);
-  els.celebrateBanner.hidden = false;
-
-  window.setTimeout(() => {
-    els.celebrateBanner.hidden = true;
-    celebrating = false;
+    zoom = clampedZoom;
+    setCamera(worldAnchorX - ax / zoom, worldAnchorY - ay / zoom);
     clearAllParticles();
-    selectedId = null;
-    for (const s of stars) {
-      if (s.status === "selected") s.status = "idle";
-    }
-    syncAllStars();
+    updateZoomUI();
     updatePanel();
-
-    const allCompleted = stars.every((s) => s.status === "completed");
-    if (allCompleted) {
-      els.selectionLabel.textContent = "すべての星が完成しました！";
-      appendLog("夜空がいっぱいに輝いている…", "milestone");
-      focusOnCompletedStar(star);
-      openCharacterPopup(star);
-      pendingCompletionPopup = true;
-    } else {
-      focusOnCompletedStar(star);
-      openCharacterPopup(star);
+    if (activePopupStarId) {
+      const star = findStar(activePopupStarId);
+      if (star) updateCharacterPopupPosition(star);
     }
-  }, CELEBRATE_MS);
-}
+  }
 
-function focusOnCompletedStar(star) {
-  const { width: vw, height: vh } = getViewportSize();
-  zoom = Math.min(ZOOM_MAX, 1.5);
-  setCamera(star.x * WORLD_WIDTH - vw / (2 * zoom), star.y * WORLD_HEIGHT - vh / (2 * zoom));
-  clearAllParticles();
-  updateZoomUI();
-  updatePanel();
-}
+  /** 背景ドラッグ開始 */
+  function onPanPointerDown(event) {
+    if (celebrating) return;
+    if (event.button != null && event.button !== 0) return;
 
-function handleResize() {
-  resizeParticleCanvas();
-  setCamera(camX, camY);
-}
+    isPointerDown = true;
+    isDragging = false;
+    suppressClick = false;
+    activePointerId = event.pointerId;
+    dragStartX = event.clientX;
+    dragStartY = event.clientY;
+    dragOriginCamX = camX;
+    dragOriginCamY = camY;
+    // pointer capture はドラッグ確定後に行う（即キャプチャすると星の click が消える）
+  }
 
-let lastTs = 0;
+  /** 背景ドラッグ中：カメラを移動 */
+  function onPanPointerMove(event) {
+    if (!isPointerDown || event.pointerId !== activePointerId) return;
 
-function tick(ts) {
-  rafId = null;
-  if (!lastTs) lastTs = ts;
-  const dt = Math.min(0.05, (ts - lastTs) / 1000);
-  lastTs = ts;
+    const dx = event.clientX - dragStartX;
+    const dy = event.clientY - dragStartY;
 
-  if (growingId) {
-    const star = findStar(growingId);
-    if (star) {
-      const elapsed = ts - growthStartMs;
-      const progress = Math.min(100, (elapsed / GROWTH_DURATION_MS) * 100);
-      applyProgress(star, progress);
-      updatePanel();
-      if (progress >= 100) {
-        completeStar(star);
+    if (!isDragging && Math.hypot(dx, dy) >= DRAG_THRESHOLD_PX) {
+      isDragging = true;
+      suppressClick = true;
+      els.sky.classList.add("is-dragging");
+      try {
+        els.sky.setPointerCapture(event.pointerId);
+      } catch (_) {
+        /* ignore */
       }
     }
+
+    if (!isDragging) return;
+
+    // 指を右へ動かすと、背景は右へ追従（＝カメラは左へ）
+    setCamera(dragOriginCamX - dx / zoom, dragOriginCamY - dy / zoom);
   }
 
-  updateParticles(dt);
+  /** 背景ドラッグ終了 */
+  function onPanPointerUp(event) {
+    if (event.pointerId !== activePointerId) return;
 
-  if (growingId || hasParticles() || celebrating) {
-    rafId = requestAnimationFrame(tick);
-  } else {
-    lastTs = 0;
+    const wasDragging = isDragging;
+
+    isPointerDown = false;
+    isDragging = false;
+    activePointerId = null;
+    els.sky.classList.remove("is-dragging");
+
+    try {
+      if (els.sky.hasPointerCapture?.(event.pointerId)) {
+        els.sky.releasePointerCapture(event.pointerId);
+      }
+    } catch (_) {
+      /* ignore */
+    }
+
+    // ドラッグでなければ、ポインタ位置の星を選択／応援する
+    if (!wasDragging && !celebrating) {
+      const star = findStarAtPoint(event.clientX, event.clientY);
+      if (star) {
+        onStarClick(star.id);
+        // 後続の click イベントでの二重処理を防ぐ
+        suppressClick = true;
+      }
+    }
+
+    window.setTimeout(() => {
+      suppressClick = false;
+    }, 0);
   }
-}
 
-function ensureLoop() {
-  if (rafId == null) {
-    lastTs = 0;
-    rafId = requestAnimationFrame(tick);
+  /**
+   * 画面座標から最も近いクリック可能な星を返す。
+   * 星が小さくても押しやすいよう判定半径を広めにとる。
+   */
+  function findStarAtPoint(clientX, clientY) {
+    let best = null;
+    let bestDist = Infinity;
+    const hitRadius = 28;
+
+    for (const star of stars) {
+      if (star.status === "completed") continue;
+      if (growingId && star.id !== growingId) continue;
+
+      const r = star.el.getBoundingClientRect();
+      const cx = r.left + r.width / 2;
+      const cy = r.top + r.height / 2;
+      const dist = Math.hypot(clientX - cx, clientY - cy);
+      const radius = Math.max(hitRadius, Math.max(r.width, r.height) / 2 + 6);
+      if (dist <= radius && dist < bestDist) {
+        best = star;
+        bestDist = dist;
+      }
+    }
+    return best;
   }
-}
 
-function init() {
-  els.sky.style.setProperty("--world-width", `${WORLD_WIDTH}px`);
-  els.sky.style.setProperty("--world-height", `${WORLD_HEIGHT}px`);
-  els.world.style.width = `${WORLD_WIDTH}px`;
-  els.world.style.height = `${WORLD_HEIGHT}px`;
+  /** 夜空へのポインタ入力（背景パン開始） */
+  function onSkyPointerDown(event) {
+    onPanPointerDown(event);
+  }
 
-  initParticles(els.canvas, els.sky);
-  createStars();
-  resizeParticleCanvas();
-  centerCameraOnWorld();
-  updateZoomUI();
-  updatePanel();
-  appendLog("背景をドラッグして、散らばる星を探そう", "");
-  appendLog("星を選んで育成ボタンを押してみよう", "");
+  // ============================================================
+  // 成長ログ
+  // ============================================================
 
-  els.growBtn.addEventListener("click", startGrowth);
-  els.sky.addEventListener("pointerdown", onPanPointerDown);
-  els.sky.addEventListener("pointermove", onPanPointerMove);
-  els.sky.addEventListener("pointerup", onPanPointerUp);
-  els.sky.addEventListener("pointercancel", onPanPointerUp);
-  els.zoomIn.addEventListener("pointerdown", (event) => event.stopPropagation());
-  els.zoomOut.addEventListener("pointerdown", (event) => event.stopPropagation());
-  els.zoomInput.addEventListener("pointerdown", (event) => event.stopPropagation());
-  els.zoomInput.parentElement?.addEventListener("pointerdown", (event) => event.stopPropagation());
-  els.zoomIn.addEventListener("click", (event) => {
-    event.stopPropagation();
-    setZoom(zoom + ZOOM_STEP);
-  });
-  els.zoomOut.addEventListener("click", (event) => {
-    event.stopPropagation();
-    setZoom(zoom - ZOOM_STEP);
-  });
-  els.zoomInput.addEventListener("change", applyZoomInputValue);
-  els.zoomInput.addEventListener("keydown", (event) => {
-    if (event.key === "Enter") {
-      event.preventDefault();
-      applyZoomInputValue();
-      els.zoomInput.blur();
+  /** 成長ログへ1行追加し、古い行を上限まで削る */
+  function appendLog(text, kind = "") {
+    const li = document.createElement("li");
+    if (kind) li.classList.add(`is-${kind}`);
+    li.textContent = text;
+    els.growthLog.appendChild(li);
+
+    while (els.growthLog.children.length > LOG_MAX_ITEMS) {
+      els.growthLog.removeChild(els.growthLog.firstElementChild);
     }
-  });
-  els.characterPopupClose.addEventListener("click", closeCharacterPopup);
-  els.characterPopup.addEventListener("click", (event) => {
-    if (event.target?.dataset?.popupClose === "true") {
-      closeCharacterPopup();
+
+    // 最新行が見えるよう末尾へスクロール
+    els.growthLog.scrollTop = els.growthLog.scrollHeight;
+  }
+
+  function clearLog() {
+    els.growthLog.replaceChildren();
+  }
+
+  /** 進捗がマイルストーンを超えたら、未出力のログだけ追加する */
+  function maybeLogMilestones(star) {
+    for (const milestone of GROWTH_MILESTONES) {
+      if (star.progress < milestone.min) continue;
+      if (star.loggedMilestones.has(milestone.id)) continue;
+      // start は育成開始時に明示的に出す
+      if (milestone.id === "start") continue;
+      star.loggedMilestones.add(milestone.id);
+      appendLog(milestone.text, "milestone");
     }
-  });
-  els.completionPopupClose.addEventListener("click", closeCompletionPopup);
-  els.completionPopup.addEventListener("click", (event) => {
-    if (event.target?.dataset?.popupClose === "true") {
-      closeCompletionPopup();
+  }
+
+  // ============================================================
+  // 星の生成・選択・表示同期
+  // ============================================================
+
+  /**
+   * キャラ画像未配置時の仮マスコット（SVG data URL）を作る。
+   * 本番画像が読み込めたら差し替える。
+   */
+  function createPlaceholderSvg(index) {
+    const hues = [200, 45, 320, 160, 280, 20, 190, 340, 100, 240];
+    const hue = hues[(index - 1) % hues.length];
+    const body = `hsl(${hue} 55% 72%)`;
+    const cheek = `hsl(${hue} 70% 82%)`;
+    const svg = `
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96" role="img" aria-label="キャラクター ${pad2(index)}">
+  <defs>
+    <radialGradient id="g" cx="50%" cy="40%" r="55%">
+      <stop offset="0%" stop-color="#fff6"/>
+      <stop offset="100%" stop-color="${body}"/>
+    </radialGradient>
+  </defs>
+  <circle cx="48" cy="50" r="28" fill="url(#g)" stroke="#fff8" stroke-width="2"/>
+  <circle cx="38" cy="46" r="3.2" fill="#2a3344"/>
+  <circle cx="58" cy="46" r="3.2" fill="#2a3344"/>
+  <circle cx="34" cy="52" r="4" fill="${cheek}" opacity="0.7"/>
+  <circle cx="62" cy="52" r="4" fill="${cheek}" opacity="0.7"/>
+  <path d="M42 58 Q48 64 54 58" fill="none" stroke="#2a3344" stroke-width="2.2" stroke-linecap="round"/>
+  <circle cx="48" cy="22" r="6" fill="${body}" stroke="#fff8" stroke-width="1.5"/>
+</svg>`.trim();
+    return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
+  }
+
+  /** プリセット座標で星ボタンとデータモデルを生成する */
+  function createStars() {
+    stars = STAR_POSITIONS.slice(0, STAR_COUNT).map((pos, i) => {
+      const index = i + 1;
+      const id = `star-${pad2(index)}`;
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "star phase-initial";
+      btn.dataset.id = id;
+      btn.style.left = `${pos.x * 100}%`;
+      btn.style.top = `${pos.y * 100}%`;
+      btn.setAttribute("aria-label", `星 ${index}`);
+      btn.addEventListener("click", () => onStarClick(id));
+      els.stars.appendChild(btn);
+
+      return {
+        id,
+        index,
+        x: pos.x,
+        y: pos.y,
+        progress: 0,
+        status: "idle",
+        colorPhase: "initial",
+        characterImageUrl: `assets/characters/star-${pad2(index)}.png`,
+        el: btn,
+        loggedMilestones: new Set(),
+      };
+    });
+  }
+
+  function findStar(id) {
+    return stars.find((s) => s.id === id) || null;
+  }
+
+  /**
+   * 星クリック時の分岐。
+   * - 通常時: 選択
+   * - 育成中: 育成対象なら応援タップ
+   * - 完成済み / 祝福中: 無視
+   */
+  function onStarClick(id) {
+    // 背景ドラッグ直後の誤クリックを無視
+    if (suppressClick || isDragging) return;
+    if (celebrating) return;
+
+    const star = findStar(id);
+    if (!star) return;
+
+    if (star.status === "completed") {
+      openCharacterPopup(star);
+      return;
     }
-  });
-  window.addEventListener("keydown", (event) => {
-    if (event.key === "Escape" && !els.characterPopup.hidden) {
-      closeCharacterPopup();
-    } else if (event.key === "Escape" && !els.completionPopup.hidden) {
-      closeCompletionPopup();
+
+    // 育成中は対象星への応援タップのみ許可
+    if (growingId) {
+      if (id === growingId) cheerStar(star);
+      return;
     }
-  });
-  window.addEventListener("resize", handleResize);
-}
+
+    // 別の星が選択中なら解除してから付け替える
+    if (selectedId && selectedId !== id) {
+      const prev = findStar(selectedId);
+      if (prev && prev.status === "selected") {
+        prev.status = "idle";
+        syncStarElement(prev);
+      }
+    }
+
+    selectedId = id;
+    star.status = "selected";
+    syncStarElement(star);
+    updatePanel();
+  }
+
+  /**
+   * 育成中の星への応援タップ。
+   * パーティクル演出に加え、上限付きで育成時間をわずかに短縮する。
+   */
+  function cheerStar(star) {
+    if (celebrating || star.id !== growingId) return;
+
+    const now = performance.now();
+    if (now - lastCheerMs < CHEER_COOLDOWN_MS) return;
+    lastCheerMs = now;
+
+    // growthStartMs を過去へずらすと、経過時間が伸びて進捗が前倒しになる
+    const remainingBudget = CHEER_MAX_TOTAL_MS - cheerBoostAppliedMs;
+    if (remainingBudget > 0) {
+      const boost = Math.min(CHEER_BOOST_MS, remainingBudget);
+      cheerBoostAppliedMs += boost;
+      growthStartMs -= boost;
+    }
+
+    spawnCheerParticles(star);
+
+    // 同じクラス再付与で脈打ちアニメを再スタート
+    star.el.classList.remove("is-cheered");
+    void star.el.offsetWidth;
+    star.el.classList.add("is-cheered");
+    window.setTimeout(() => star.el.classList.remove("is-cheered"), 360);
+
+    const line = CHEER_LOG_LINES[cheerLogIndex % CHEER_LOG_LINES.length];
+    cheerLogIndex += 1;
+    appendLog(line, "cheer");
+    ensureLoop();
+  }
+
+  /**
+   * 星データに合わせて DOM の見た目・活性状態を同期する。
+   * 完成時は画像を載せ、未配置ならプレースホルダを使う。
+   */
+  function syncStarElement(star) {
+    const { el } = star;
+    const wasCheered = el.classList.contains("is-cheered");
+    el.className = "star";
+    el.classList.add(`phase-${star.colorPhase}`);
+    if (wasCheered) el.classList.add("is-cheered");
+
+    if (star.status === "selected") el.classList.add("is-selected");
+    if (star.status === "growing") el.classList.add("is-growing");
+    if (star.status === "completed") {
+      el.classList.add("is-completed");
+      el.disabled = false;
+      el.setAttribute("aria-label", `星 ${star.index}（クリックでメッセージ）`);
+      if (!el.querySelector("img")) {
+        const img = document.createElement("img");
+        img.alt = `星 ${star.index} のキャラクター`;
+        // まずプレースホルダを出し、本番画像があれば差し替え
+        img.src = createPlaceholderSvg(star.index);
+        const probe = new Image();
+        probe.onload = () => {
+          img.src = star.characterImageUrl;
+        };
+        probe.src = star.characterImageUrl;
+        el.appendChild(img);
+      }
+    } else if (growingId && growingId === star.id) {
+      // 育成対象だけはクリック可（応援用）
+      el.disabled = false;
+      el.setAttribute("aria-label", `星 ${star.index}（タップで応援）`);
+    } else {
+      // 育成中は他星を操作不可にする
+      el.disabled = Boolean(growingId && growingId !== star.id);
+      el.setAttribute("aria-label", `星 ${star.index}`);
+    }
+  }
+
+  function syncAllStars() {
+    for (const star of stars) syncStarElement(star);
+  }
+
+  // ============================================================
+  // 下部パネル（進捗・育成ボタン）
+  // ============================================================
+
+  /** 選択中／育成中の星に合わせてパネル文言と進捗表示を更新する */
+  function updatePanel() {
+    const star = selectedId ? findStar(selectedId) : null;
+    const displayStar =
+      (growingId && findStar(growingId)) ||
+      star ||
+      null;
+
+    if (!displayStar) {
+      els.selectionLabel.textContent = "ドラッグで探して、星を選んでください";
+      setProgress(0);
+      els.remainingTime.textContent = "残り —";
+      els.growBtn.disabled = true;
+      els.growBtn.textContent = "育成";
+      return;
+    }
+
+    if (displayStar.status === "completed") {
+      els.selectionLabel.textContent = `星 ${displayStar.index} — 完成（クリックでメッセージ）`;
+      setProgress(100);
+      els.remainingTime.textContent = "残り 00:00";
+      els.growBtn.disabled = true;
+      els.growBtn.textContent = "完成";
+      return;
+    }
+
+    els.selectionLabel.textContent =
+      displayStar.status === "growing"
+        ? `星 ${displayStar.index} を育成中… タップで応援！`
+        : `選択中: 星 ${displayStar.index}`;
+
+    setProgress(displayStar.progress);
+
+    const remainingMs =
+      GROWTH_DURATION_MS * (1 - displayStar.progress / 100);
+    els.remainingTime.textContent =
+      displayStar.status === "growing" || displayStar.progress > 0
+        ? formatRemaining(remainingMs)
+        : formatRemaining(GROWTH_DURATION_MS);
+
+    const canGrow =
+      !celebrating &&
+      !growingId &&
+      displayStar.status === "selected" &&
+      displayStar.progress < 100;
+
+    els.growBtn.disabled = !canGrow;
+    els.growBtn.textContent = growingId ? "育成中…" : "育成";
+  }
+
+  /** プログレスバーと％表示を更新する */
+  function setProgress(progress) {
+    const pct = Math.max(0, Math.min(100, progress));
+    const shown = Math.floor(pct);
+    els.progressFill.style.width = `${pct}%`;
+    els.progressPercent.textContent = `${shown}%`;
+    els.progressTrack.setAttribute("aria-valuenow", String(shown));
+  }
+
+  // ============================================================
+  // 育成・完成・祝福
+  // ============================================================
+
+  /** 完成済みキャラクリック時のポップアップを開く */
+  function openCharacterPopup(star) {
+    if (activePopupStarId === star.id && !els.characterPopup.hidden) {
+      updateCharacterPopupPosition(star);
+      return;
+    }
+
+    const info = CHARACTER_MESSAGES[star.index - 1] || {
+      title: `星 ${pad2(star.index)} のキャラクター`,
+      message: "育ててくれてありがとう。おめでとう、きみのおかげでここまで来られたよ。",
+    };
+
+    activePopupStarId = star.id;
+    els.characterPopupTitle.textContent = info.title;
+    els.characterPopupMessage.textContent = info.message;
+    els.characterPopupImage.alt = info.title;
+
+    const img = star.el.querySelector("img");
+    if (img) {
+      els.characterPopupImage.src = img.src;
+    } else {
+      els.characterPopupImage.src = star.characterImageUrl;
+    }
+
+    els.characterPopup.hidden = false;
+    els.characterPopup.setAttribute("aria-hidden", "false");
+    updateCharacterPopupPosition(star);
+  }
+
+  /** ポップアップを閉じる */
+  function closeCharacterPopup() {
+    activePopupStarId = null;
+    els.characterPopup.hidden = true;
+    els.characterPopup.setAttribute("aria-hidden", "true");
+    if (pendingCompletionPopup && stars.every((s) => s.status === "completed")) {
+      pendingCompletionPopup = false;
+      openCompletionPopup();
+    }
+  }
+
+  /**
+   * 完成キャラクターの吹き出し位置を、キャラクターの画面座標へ合わせる。
+   * 画面中央寄りに出しつつ、端で切れにくいように少しクランプする。
+   */
+  function updateCharacterPopupPosition(star) {
+    if (!star || els.characterPopup.hidden) return;
+
+    const screen = worldToScreen(star.x, star.y);
+    const { width: vw, height: vh } = getViewportSize();
+    const left = Math.min(vw - 24, Math.max(24, screen.x));
+    const top = Math.min(vh - 32, Math.max(44, screen.y - 24));
+
+    const card = els.characterPopup.querySelector(".character-popup__card");
+    if (!card) return;
+    card.style.left = `${left}px`;
+    card.style.top = `${top}px`;
+  }
+
+  /** 全星完成時のお祝いポップアップを開く */
+  function openCompletionPopup() {
+    if (completionPopupShown && !els.completionPopup.hidden) return;
+    completionPopupShown = true;
+    els.completionPopupTitle.textContent = COMPLETION_POPUP.title;
+    els.completionPopupMessage.textContent = COMPLETION_POPUP.message;
+    els.completionPopup.hidden = false;
+    els.completionPopup.setAttribute("aria-hidden", "false");
+  }
+
+  /** 全星完成時のお祝いポップアップを閉じる */
+  function closeCompletionPopup() {
+    els.completionPopup.hidden = true;
+    els.completionPopup.setAttribute("aria-hidden", "true");
+  }
+
+  /** 「育成」ボタン。選択中の星の育成を開始する */
+  function startGrowth() {
+    if (celebrating || growingId || !selectedId) return;
+    const star = findStar(selectedId);
+    if (!star || star.status !== "selected") return;
+
+    growingId = star.id;
+    star.status = "growing";
+    cheerBoostAppliedMs = 0;
+    lastCheerMs = 0;
+    // 進捗途中からの再開にも対応できるよう、開始時刻を進捗分ずらす
+    growthStartMs = performance.now() - (star.progress / 100) * GROWTH_DURATION_MS;
+
+    clearLog();
+    star.loggedMilestones.add("start");
+    appendLog(GROWTH_MILESTONES[0].text, "milestone");
+
+    syncAllStars();
+    updatePanel();
+    ensureLoop();
+  }
+
+  /**
+   * 育成中の進捗を反映する。
+   * 色フェーズが変わったときだけ DOM を同期し、毎フレームの再描画コストを抑える。
+   */
+  function applyProgress(star, progress) {
+    star.progress = progress;
+    const phase = getColorPhase(progress);
+    if (phase !== star.colorPhase) {
+      star.colorPhase = phase;
+      syncStarElement(star);
+    }
+    maybeLogMilestones(star);
+  }
+
+  /** 進捗100%到達時。育成を終え、祝福演出へ移行する */
+  function completeStar(star) {
+    growingId = null;
+    selectedId = star.id;
+    star.progress = 100;
+    star.status = "completed";
+    star.colorPhase = "purple";
+    maybeLogMilestones(star);
+    syncAllStars();
+    updatePanel();
+    celebrate(star);
+  }
+
+  /**
+   * 完成祝福。
+   * パーティクル演出を再生し、演出後に操作を再開する。
+   */
+  function celebrate(star) {
+    celebrating = true;
+    els.growBtn.disabled = true;
+
+    spawnCelebrateParticles(star);
+    els.celebrateBanner.hidden = false;
+
+    window.setTimeout(() => {
+      els.celebrateBanner.hidden = true;
+      celebrating = false;
+      clearAllParticles();
+      selectedId = null;
+      for (const s of stars) {
+        if (s.status === "selected") s.status = "idle";
+      }
+      syncAllStars();
+      updatePanel();
+
+      const allCompleted = stars.every((s) => s.status === "completed");
+      if (allCompleted) {
+        els.selectionLabel.textContent = "すべての星が完成しました！";
+        appendLog("夜空がいっぱいに輝いている…", "milestone");
+        focusOnCompletedStar(star);
+        openCharacterPopup(star);
+        pendingCompletionPopup = true;
+      } else {
+        focusOnCompletedStar(star);
+        openCharacterPopup(star);
+      }
+    }, CELEBRATE_MS);
+  }
+
+  /** 完成した星に視点を寄せて、少しズームする */
+  function focusOnCompletedStar(star) {
+    const { width: vw, height: vh } = getViewportSize();
+    zoom = Math.min(ZOOM_MAX, 1.5);
+    setCamera(star.x * WORLD_WIDTH - vw / (2 * zoom), star.y * WORLD_HEIGHT - vh / (2 * zoom));
+    clearAllParticles();
+    updateZoomUI();
+    updatePanel();
+  }
+
+  // ============================================================
+  // パーティクル（Canvas）
+  // ============================================================
+
+  /**
+   * パーティクル用キャンバスを夜空サイズに合わせる。
+   * 高DPIディスプレイでは devicePixelRatio で解像度を上げる。
+   */
+  function resizeCanvas() {
+    const rect = els.sky.getBoundingClientRect();
+    const dpr = window.devicePixelRatio || 1;
+    els.canvas.width = Math.floor(rect.width * dpr);
+    els.canvas.height = Math.floor(rect.height * dpr);
+    // 以降の描画座標は CSS ピクセル基準で扱えるようにする
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    clearParticleCanvas();
+    // リサイズ後もカメラが枠外に出ないよう再クランプ
+    setCamera(camX, camY);
+  }
+
+  /**
+   * キャンバス全体を確実に消去する。
+   * 変換行列の影響を避けるため、いったん単位行列で clear する。
+   */
+  function clearParticleCanvas() {
+    ctx.save();
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.clearRect(0, 0, els.canvas.width, els.canvas.height);
+    ctx.restore();
+  }
+
+  function clearAllParticles() {
+    particles = [];
+    clearParticleCanvas();
+  }
+
+  /** 星のワールド座標を画面座標へ変換してパーティクルを発生させる */
+  function spawnParticlesAt(star, count, colors, speedMin, speedMax, lifeMin, lifeMax) {
+    const screen = worldToScreen(star.x, star.y);
+    spawnBurstAt(screen.x, screen.y, count, colors, speedMin, speedMax, lifeMin, lifeMax);
+  }
+
+  /** 指定座標から放射状にパーティクルを生成する */
+  function spawnBurstAt(cx, cy, count, colors, speedMin, speedMax, lifeMin, lifeMax) {
+    for (let i = 0; i < count; i++) {
+      const angle = Math.random() * Math.PI * 2;
+      const speed = speedMin + Math.random() * (speedMax - speedMin);
+      particles.push({
+        x: cx + (Math.random() - 0.5) * 16,
+        y: cy + (Math.random() - 0.5) * 16,
+        vx: Math.cos(angle) * speed,
+        vy: Math.sin(angle) * speed - 30,
+        life: 0,
+        maxLife: lifeMin + Math.random() * (lifeMax - lifeMin),
+        size: 1.5 + Math.random() * 2.8,
+        color: colors[i % colors.length],
+      });
+    }
+    ensureLoop();
+  }
+
+  /** 完成祝福用パーティクル */
+  function spawnCelebrateParticles(star) {
+    spawnParticlesAt(
+      star,
+      70,
+      ["#ffe566", "#c084fc", "#ffffff", "#7ec8ff", "#ffd6f5", "#b8f0c8"],
+      40,
+      200,
+      0.9,
+      2.1
+    );
+  }
+
+  /** 応援タップ用の小さめの輝き */
+  function spawnCheerParticles(star) {
+    spawnParticlesAt(
+      star,
+      14,
+      ["#ffffff", "#d6eaff", "#ffe566", "#b8e0ff"],
+      30,
+      110,
+      0.4,
+      0.9
+    );
+  }
+
+  /**
+   * パーティクルの移動・寿命・描画を1フレーム分進める。
+   * 枠外へ出た粒子はすぐ捨て、下端に残像が残らないようにする。
+   */
+  function updateParticles(dt) {
+    const rect = els.sky.getBoundingClientRect();
+    clearParticleCanvas();
+    if (!particles.length) return;
+
+    const bottomLimit = rect.height;
+    const sidePad = 12;
+
+    particles = particles.filter((p) => {
+      p.life += dt;
+      p.x += p.vx * dt;
+      p.y += p.vy * dt;
+      p.vy += 90 * dt; // 重力
+      const t = p.life / p.maxLife;
+      if (t >= 1) return false;
+      // 枠外へ出た粒子は描画せず除去（下端への残留防止）
+      if (p.y > bottomLimit || p.y < -20 || p.x < -sidePad || p.x > rect.width + sidePad) {
+        return false;
+      }
+
+      const alpha = 1 - t;
+      ctx.globalAlpha = alpha;
+      ctx.fillStyle = p.color;
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, p.size * (1 - t * 0.4), 0, Math.PI * 2);
+      ctx.fill();
+      return true;
+    });
+
+    ctx.globalAlpha = 1;
+  }
+
+  // ============================================================
+  // メインループ
+  // ============================================================
+
+  let lastTs = 0;
+
+  /**
+   * 毎フレームの更新入口。
+   * 育成進捗・パーティクルを進め、必要な間だけループを継続する。
+   */
+  function tick(ts) {
+    rafId = null;
+    if (!lastTs) lastTs = ts;
+    // タブ復帰などで大きな dt にならないよう上限を設ける
+    const dt = Math.min(0.05, (ts - lastTs) / 1000);
+    lastTs = ts;
+
+    if (growingId) {
+      const star = findStar(growingId);
+      if (star) {
+        const elapsed = ts - growthStartMs;
+        const progress = Math.min(100, (elapsed / GROWTH_DURATION_MS) * 100);
+        applyProgress(star, progress);
+        updatePanel();
+        if (progress >= 100) {
+          completeStar(star);
+        }
+      }
+    }
+
+    updateParticles(dt);
+
+    // 動きがある間だけ rAF を回し、アイドル時は停止して負荷を下げる
+    if (growingId || particles.length || celebrating) {
+      rafId = requestAnimationFrame(tick);
+    } else {
+      lastTs = 0;
+    }
+  }
+
+  /** メインループが止まっていれば再開する */
+  function ensureLoop() {
+    if (rafId == null) {
+      lastTs = 0;
+      rafId = requestAnimationFrame(tick);
+    }
+  }
+
+  // ============================================================
+  // 初期化
+  // ============================================================
+
+  /** 画面構築とイベント登録を行う */
+  function init() {
+    // ワールドサイズを CSS 変数へ渡し、背景レイヤの寸法と揃える
+    els.sky.style.setProperty("--world-width", `${WORLD_WIDTH}px`);
+    els.sky.style.setProperty("--world-height", `${WORLD_HEIGHT}px`);
+    els.world.style.width = `${WORLD_WIDTH}px`;
+    els.world.style.height = `${WORLD_HEIGHT}px`;
+
+    createStars();
+    resizeCanvas();
+    centerCameraOnWorld();
+    updateZoomUI();
+    updatePanel();
+    appendLog("背景をドラッグして、散らばる星を探そう", "");
+    appendLog("星を選んで育成ボタンを押してみよう", "");
+
+    els.growBtn.addEventListener("click", startGrowth);
+    els.sky.addEventListener("pointerdown", onSkyPointerDown);
+    els.sky.addEventListener("pointermove", onPanPointerMove);
+    els.sky.addEventListener("pointerup", onPanPointerUp);
+    els.sky.addEventListener("pointercancel", onPanPointerUp);
+    els.zoomIn.addEventListener("pointerdown", (event) => event.stopPropagation());
+    els.zoomOut.addEventListener("pointerdown", (event) => event.stopPropagation());
+    els.zoomInput.addEventListener("pointerdown", (event) => event.stopPropagation());
+    els.zoomInput.parentElement?.addEventListener("pointerdown", (event) => event.stopPropagation());
+    els.zoomIn.addEventListener("click", (event) => {
+      event.stopPropagation();
+      setZoom(zoom + ZOOM_STEP);
+    });
+    els.zoomOut.addEventListener("click", (event) => {
+      event.stopPropagation();
+      setZoom(zoom - ZOOM_STEP);
+    });
+    els.zoomInput.addEventListener("change", applyZoomInputValue);
+    els.zoomInput.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") {
+        event.preventDefault();
+        applyZoomInputValue();
+        els.zoomInput.blur();
+      }
+    });
+    els.characterPopupClose.addEventListener("click", closeCharacterPopup);
+    els.characterPopup.addEventListener("click", (event) => {
+      if (event.target?.dataset?.popupClose === "true") {
+        closeCharacterPopup();
+      }
+    });
+    els.completionPopupClose.addEventListener("click", closeCompletionPopup);
+    els.completionPopup.addEventListener("click", (event) => {
+      if (event.target?.dataset?.popupClose === "true") {
+        closeCompletionPopup();
+      }
+    });
+    window.addEventListener("keydown", (event) => {
+      if (event.key === "Escape" && !els.characterPopup.hidden) {
+        closeCharacterPopup();
+      } else if (event.key === "Escape" && !els.completionPopup.hidden) {
+        closeCompletionPopup();
+      }
+    });
+    window.addEventListener("resize", resizeCanvas);
+  }
 
 init();
