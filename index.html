@@ -53,6 +53,7 @@
               <img id="telescopeImage" class="telescope__image" alt="" />
             </div>
           </div>
+          <button id="growBtn" class="grow-btn" type="button" hidden>育成</button>
         </div>
       </main>
 
@@ -80,12 +81,27 @@
             <ul id="growthLog" class="growth-log-list"></ul>
           </div>
         </div>
-        <button id="growBtn" class="grow-btn" type="button" disabled>育成</button>
       </footer>
 
       <!-- 完成時に短時間表示する祝福メッセージ -->
       <div id="celebrateBanner" class="celebrate-banner" hidden>
         <p class="celebrate-text">完成！</p>
+      </div>
+
+      <!-- 起動時チュートリアル（吹き出しガイド） -->
+      <div id="tutorial" class="tutorial" hidden aria-hidden="true">
+        <div class="tutorial__backdrop"></div>
+        <section id="tutorialBubble" class="tutorial__bubble" role="dialog" aria-modal="true" aria-labelledby="tutorialTitle" aria-describedby="tutorialMessage">
+          <p id="tutorialTitle" class="tutorial__title"></p>
+          <p id="tutorialMessage" class="tutorial__message"></p>
+          <div class="tutorial__footer">
+            <span id="tutorialStepLabel" class="tutorial__step">1 / 4</span>
+            <div class="tutorial__actions">
+              <button id="tutorialSkip" class="tutorial__btn tutorial__btn--ghost" type="button">スキップ</button>
+              <button id="tutorialNext" class="tutorial__btn" type="button">次へ</button>
+            </div>
+          </div>
+        </section>
       </div>
 
       <!-- 完成済みキャラクターをクリックしたときの詳細ポップアップ -->

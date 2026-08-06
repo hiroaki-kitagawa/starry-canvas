@@ -52,6 +52,13 @@ import { pad2, formatRemaining, getColorPhase } from "./utils.js";
     completionPopupClose: document.getElementById("completionPopupClose"),
     completionPopupTitle: document.getElementById("completionPopupTitle"),
     completionPopupMessage: document.getElementById("completionPopupMessage"),
+    tutorial: document.getElementById("tutorial"),
+    tutorialBubble: document.getElementById("tutorialBubble"),
+    tutorialTitle: document.getElementById("tutorialTitle"),
+    tutorialMessage: document.getElementById("tutorialMessage"),
+    tutorialStepLabel: document.getElementById("tutorialStepLabel"),
+    tutorialNext: document.getElementById("tutorialNext"),
+    tutorialSkip: document.getElementById("tutorialSkip"),
   };
 
   const ctx = els.canvas.getContext("2d");
@@ -112,10 +119,44 @@ import { pad2, formatRemaining, getColorPhase } from "./utils.js";
   let activePointerId = null;
   /** 望遠鏡プレビュー中の星ID */
   let telescopeStarId = null;
+  let tutorialStepIndex = -1;
+  let tutorialActive = false;
+  let tutorialStarId = null;
+  let tutorialTargetEl = null;
+  let tutorialPreviewApplied = false;
 
-  const TELESCOPE_SCOPE_SIZE = 172;
-  const TELESCOPE_OFFSET_X = 106;
-  const TELESCOPE_OFFSET_Y = -86;
+  const TELESCOPE_SCOPE_SIZE = 344;
+  const TELESCOPE_OFFSET_X = 212;
+  const TELESCOPE_OFFSET_Y = -172;
+  const GROW_BTN_OFFSET_Y = 34;
+  const GROW_BTN_EDGE_PAD = 12;
+
+  const TUTORIAL_STEPS = [
+    {
+      title: "1. 黄色く輝く星を見つけよう",
+      message: "夜空を見渡して、黄色く光る星を探してみよう。",
+      placement: "top",
+      target: "star",
+    },
+    {
+      title: "2. 星を選択して育成ボタンを押そう",
+      message: "星を選ぶと、すぐ下に育成ボタンが出てくるよ。押して育てよう。",
+      placement: "top",
+      target: "grow",
+    },
+    {
+      title: "3. 左上で拡大・縮小しよう",
+      message: "星が見つからないときは、左上のコントロールで見やすさを調整してみよう。",
+      placement: "bottom",
+      target: "zoom",
+    },
+    {
+      title: "4. 星が完成するとキャラクターが出るよ",
+      message: "育成が完了すると、星からキャラクターが出現するよ。",
+      placement: "top",
+      target: "completed",
+    },
+  ];
 
   /** @type {Array<{
    *   x: number, y: number, vx: number, vy: number,
@@ -173,6 +214,7 @@ import { pad2, formatRemaining, getColorPhase } from "./utils.js";
   /** world 要素へ translate を適用する（カメラ＝左上原点） */
   function applyWorldTransform() {
     els.world.style.transform = `translate3d(${-camX * zoom}px, ${-camY * zoom}px, 0) scale(${zoom})`;
+    updateGrowButtonAnchor();
     if (activePopupStarId) {
       const star = findStar(activePopupStarId);
       if (star) updateCharacterPopupPosition(star);
@@ -353,7 +395,172 @@ import { pad2, formatRemaining, getColorPhase } from "./utils.js";
 
   /** 夜空へのポインタ入力（背景パン開始） */
   function onSkyPointerDown(event) {
+    if (tutorialActive) return;
     onPanPointerDown(event);
+  }
+
+  /** 選択中の星の真下へ育成ボタンを配置する */
+  function updateGrowButtonAnchor() {
+    const targetId = growingId || selectedId;
+    const star = targetId ? findStar(targetId) : null;
+    const shouldShow = Boolean(star && star.status !== "completed" && !celebrating);
+
+    if (!shouldShow) {
+      els.growBtn.hidden = true;
+      return;
+    }
+
+    els.growBtn.hidden = false;
+    const screen = worldToScreen(star.x, star.y);
+    const { width: vw, height: vh } = getViewportSize();
+    const btnRect = els.growBtn.getBoundingClientRect();
+    const btnWidth = Math.max(112, btnRect.width || 0);
+    const btnHeight = Math.max(42, btnRect.height || 0);
+    const half = btnWidth / 2;
+
+    const left = Math.min(vw - half - GROW_BTN_EDGE_PAD, Math.max(half + GROW_BTN_EDGE_PAD, screen.x));
+    const top = Math.min(vh - btnHeight - GROW_BTN_EDGE_PAD, Math.max(GROW_BTN_EDGE_PAD, screen.y + GROW_BTN_OFFSET_Y));
+    els.growBtn.style.left = `${left}px`;
+    els.growBtn.style.top = `${top}px`;
+
+    if (tutorialActive) {
+      layoutTutorialBubble();
+    }
+  }
+
+  function clearTutorialTarget() {
+    if (tutorialTargetEl) {
+      tutorialTargetEl.classList.remove("tutorial-target");
+      tutorialTargetEl = null;
+    }
+  }
+
+  function getTutorialStar() {
+    if (!tutorialStarId) return null;
+    return findStar(tutorialStarId);
+  }
+
+  function applyTutorialCompletedPreview(enabled) {
+    const star = getTutorialStar();
+    if (!star) return;
+
+    if (!enabled) {
+      if (!tutorialPreviewApplied) return;
+      tutorialPreviewApplied = false;
+      star.progress = 0;
+      star.status = "selected";
+      star.colorPhase = "initial";
+      syncStarElement(star);
+      return;
+    }
+
+    tutorialPreviewApplied = true;
+    star.progress = 100;
+    star.status = "completed";
+    star.colorPhase = "purple";
+    syncStarElement(star);
+  }
+
+  function getTutorialTargetElement(step) {
+    const star = getTutorialStar();
+    if (!step) return null;
+    if (step.target === "zoom") return els.sky.querySelector(".zoom-controls");
+    if (!star) return null;
+    if (step.target === "grow") return els.growBtn;
+    return star.el;
+  }
+
+  function getTutorialTargetRect(step) {
+    const target = getTutorialTargetElement(step);
+    if (!target) return null;
+    return target.getBoundingClientRect();
+  }
+
+  function layoutTutorialBubble() {
+    if (!tutorialActive || tutorialStepIndex < 0) return;
+    const step = TUTORIAL_STEPS[tutorialStepIndex];
+    const rect = getTutorialTargetRect(step);
+    if (!rect) return;
+
+    const bubble = els.tutorialBubble;
+    bubble.classList.remove("is-top", "is-bottom");
+    bubble.classList.add(step.placement === "bottom" ? "is-bottom" : "is-top");
+
+    const bubbleWidth = Math.min(window.innerWidth * 0.92, 360);
+    const bubbleHeight = bubble.offsetHeight || 180;
+    const centerX = rect.left + rect.width / 2;
+    const desiredY =
+      step.placement === "bottom"
+        ? rect.bottom + 16 + bubbleHeight / 2
+        : rect.top - 16 - bubbleHeight / 2;
+
+    const x = Math.min(window.innerWidth - bubbleWidth / 2 - 12, Math.max(bubbleWidth / 2 + 12, centerX));
+    const y = Math.min(window.innerHeight - bubbleHeight / 2 - 12, Math.max(bubbleHeight / 2 + 12, desiredY));
+
+    bubble.style.left = `${x}px`;
+    bubble.style.top = `${y}px`;
+  }
+
+  function showTutorialStep(index) {
+    tutorialStepIndex = index;
+    const step = TUTORIAL_STEPS[index];
+
+    clearTutorialTarget();
+    applyTutorialCompletedPreview(false);
+
+    const star = getTutorialStar();
+    if (star && star.status !== "completed") {
+      selectedId = star.id;
+      star.status = "selected";
+      syncStarElement(star);
+      updatePanel();
+    }
+
+    if (step.target === "completed") {
+      applyTutorialCompletedPreview(true);
+      updatePanel();
+    }
+
+    const target = getTutorialTargetElement(step);
+    if (target) {
+      tutorialTargetEl = target;
+      tutorialTargetEl.classList.add("tutorial-target");
+    }
+
+    els.tutorialTitle.textContent = step.title;
+    els.tutorialMessage.textContent = step.message;
+    els.tutorialStepLabel.textContent = `${index + 1} / ${TUTORIAL_STEPS.length}`;
+    els.tutorialNext.textContent = index === TUTORIAL_STEPS.length - 1 ? "はじめる" : "次へ";
+
+    layoutTutorialBubble();
+  }
+
+  function closeTutorial() {
+    tutorialActive = false;
+    clearTutorialTarget();
+    applyTutorialCompletedPreview(false);
+    els.tutorial.hidden = true;
+    els.tutorial.setAttribute("aria-hidden", "true");
+    tutorialStepIndex = -1;
+    selectedId = null;
+    syncAllStars();
+    updatePanel();
+  }
+
+  function startTutorial() {
+    const first = stars.find((s) => s.status !== "completed") || stars[0] || null;
+    if (!first) return;
+
+    tutorialActive = true;
+    tutorialStarId = first.id;
+    selectedId = first.id;
+    first.status = "selected";
+    syncAllStars();
+    updatePanel();
+
+    els.tutorial.hidden = false;
+    els.tutorial.setAttribute("aria-hidden", "false");
+    showTutorialStep(0);
   }
 
   /** マウス利用時のみ望遠鏡プレビューを表示する */
@@ -391,8 +598,7 @@ import { pad2, formatRemaining, getColorPhase } from "./utils.js";
       return;
     }
 
-    const currentImg = star.el.querySelector("img");
-    els.telescopeImage.src = currentImg?.src || star.characterImageUrl;
+    els.telescopeImage.src = star.characterImageUrl;
     els.telescopeImage.alt = `星 ${star.index} の拡大表示`;
   }
 
@@ -415,9 +621,10 @@ import { pad2, formatRemaining, getColorPhase } from "./utils.js";
   }
 
   function onStarPointerEnter(id, event) {
-    if (celebrating || suppressClick) return;
+    if (suppressClick) return;
     const star = findStar(id);
     if (!star) return;
+    if (celebrating && star.status !== "completed") return;
     openTelescopePreview(star, event);
   }
 
@@ -544,6 +751,7 @@ import { pad2, formatRemaining, getColorPhase } from "./utils.js";
    * - 完成済み / 祝福中: 無視
    */
   function onStarClick(id) {
+    if (tutorialActive) return;
     // 背景ドラッグ直後の誤クリックを無視
     if (suppressClick || isDragging) return;
     if (celebrating) return;
@@ -635,15 +843,22 @@ import { pad2, formatRemaining, getColorPhase } from "./utils.js";
         const probe = new Image();
         probe.onload = () => {
           img.src = star.characterImageUrl;
+          if (telescopeStarId === star.id && !els.telescope.hidden) {
+            renderTelescopeContent(star);
+          }
         };
         probe.src = star.characterImageUrl;
         el.appendChild(img);
       }
     } else if (growingId && growingId === star.id) {
+      const existingImg = el.querySelector("img");
+      if (existingImg) existingImg.remove();
       // 育成対象だけはクリック可（応援用）
       el.disabled = false;
       el.setAttribute("aria-label", `星 ${star.index}（タップで応援）`);
     } else {
+      const existingImg = el.querySelector("img");
+      if (existingImg) existingImg.remove();
       // 育成中は他星を操作不可にする
       el.disabled = Boolean(growingId && growingId !== star.id);
       el.setAttribute("aria-label", `星 ${star.index}`);
@@ -676,6 +891,7 @@ import { pad2, formatRemaining, getColorPhase } from "./utils.js";
       els.remainingTime.textContent = "残り —";
       els.growBtn.disabled = true;
       els.growBtn.textContent = "育成";
+      updateGrowButtonAnchor();
       return;
     }
 
@@ -685,6 +901,7 @@ import { pad2, formatRemaining, getColorPhase } from "./utils.js";
       els.remainingTime.textContent = "残り 00:00";
       els.growBtn.disabled = true;
       els.growBtn.textContent = "完成";
+      updateGrowButtonAnchor();
       return;
     }
 
@@ -710,6 +927,7 @@ import { pad2, formatRemaining, getColorPhase } from "./utils.js";
 
     els.growBtn.disabled = !canGrow;
     els.growBtn.textContent = growingId ? "育成中…" : "育成";
+    updateGrowButtonAnchor();
   }
 
   /** プログレスバーと％表示を更新する */
@@ -801,6 +1019,7 @@ import { pad2, formatRemaining, getColorPhase } from "./utils.js";
 
   /** 「育成」ボタン。選択中の星の育成を開始する */
   function startGrowth() {
+    if (tutorialActive) return;
     if (celebrating || growingId || !selectedId) return;
     const star = findStar(selectedId);
     if (!star || star.status !== "selected") return;
@@ -1095,6 +1314,7 @@ import { pad2, formatRemaining, getColorPhase } from "./utils.js";
     els.zoomOut.addEventListener("pointerdown", (event) => event.stopPropagation());
     els.zoomInput.addEventListener("pointerdown", (event) => event.stopPropagation());
     els.zoomInput.parentElement?.addEventListener("pointerdown", (event) => event.stopPropagation());
+    els.growBtn.addEventListener("pointerdown", (event) => event.stopPropagation());
     els.zoomIn.addEventListener("click", (event) => {
       event.stopPropagation();
       setZoom(zoom + ZOOM_STEP);
@@ -1123,7 +1343,24 @@ import { pad2, formatRemaining, getColorPhase } from "./utils.js";
         closeCompletionPopup();
       }
     });
+    els.tutorialNext.addEventListener("click", () => {
+      if (!tutorialActive) return;
+      const next = tutorialStepIndex + 1;
+      if (next >= TUTORIAL_STEPS.length) {
+        closeTutorial();
+        return;
+      }
+      showTutorialStep(next);
+    });
+    els.tutorialSkip.addEventListener("click", closeTutorial);
     window.addEventListener("keydown", (event) => {
+      if (tutorialActive && event.key === "Escape") {
+        closeTutorial();
+        return;
+      }
+
+      if (tutorialActive) return;
+
       const target = event.target;
       const isTypingTarget =
         target instanceof HTMLElement &&
@@ -1152,7 +1389,12 @@ import { pad2, formatRemaining, getColorPhase } from "./utils.js";
         closeCompletionPopup();
       }
     });
-    window.addEventListener("resize", resizeCanvas);
+    window.addEventListener("resize", () => {
+      resizeCanvas();
+      if (tutorialActive) layoutTutorialBubble();
+    });
+
+    startTutorial();
   }
 
 init();
