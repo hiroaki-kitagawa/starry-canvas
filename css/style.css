@@ -355,14 +355,22 @@ body {
   outline: none;
   animation: character-appear 0.6s ease-out both;
   cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   overflow: visible;
 }
 
 .star.is-completed img {
-  width: 100%;
+  width: auto;
   height: 100%;
+  max-width: 100%;
   object-fit: contain;
-  filter: drop-shadow(0 0 18px rgba(220, 236, 255, 0.78));
+  image-rendering: auto;
+  image-rendering: -webkit-optimize-contrast;
+  transform: translateZ(0);
+  backface-visibility: hidden;
+  filter: drop-shadow(0 0 10px rgba(220, 236, 255, 0.52));
   pointer-events: none;
 }
 
@@ -754,9 +762,9 @@ body {
   }
 
   .star.is-completed {
-    width: 52px;
-    height: 52px;
-    margin: -26px 0 0 -26px;
+    width: 104px;
+    height: 104px;
+    margin: -52px 0 0 -52px;
   }
 
   .character-popup__card {

@@ -9,7 +9,6 @@ import {
   WORLD_WIDTH,
   WORLD_HEIGHT,
   DRAG_THRESHOLD_PX,
-  ZOOM_MIN,
   ZOOM_MAX,
   ZOOM_STEP,
   COMPLETION_POPUP,
@@ -185,8 +184,19 @@ import { pad2, formatRemaining, getColorPhase } from "./utils.js";
     };
   }
 
+  /** 背景全体が画面内に収まる最小ズーム倍率を返す */
+  function getFitZoom() {
+    const { width: vw, height: vh } = getViewportSize();
+    if (vw <= 0 || vh <= 0) return 1;
+    return Math.min(1, vw / WORLD_WIDTH, vh / WORLD_HEIGHT);
+  }
+
   /** ズーム表示を更新する */
   function updateZoomUI() {
+    const minPct = (getFitZoom() * 100).toFixed(1);
+    els.zoomInput.min = minPct;
+    els.zoomInput.max = `${Math.round(ZOOM_MAX * 100)}`;
+    els.zoomInput.step = "0.1";
     els.zoomLevel.textContent = `${Math.round(zoom * 100)}%`;
     if (document.activeElement !== els.zoomInput) {
       els.zoomInput.value = `${Math.round(zoom * 100)}`;
@@ -206,8 +216,12 @@ import { pad2, formatRemaining, getColorPhase } from "./utils.js";
 
   /** 指定座標を中心にズーム倍率を変更する */
   function setZoom(nextZoom, anchorX, anchorY) {
-    const clampedZoom = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, nextZoom));
-    if (clampedZoom === zoom) return;
+    const minZoom = getFitZoom();
+    const clampedZoom = Math.min(ZOOM_MAX, Math.max(minZoom, nextZoom));
+    if (clampedZoom === zoom) {
+      updateZoomUI();
+      return;
+    }
 
     const { width: vw, height: vh } = getViewportSize();
     const ax = Number.isFinite(anchorX) ? anchorX : vw / 2;
@@ -803,6 +817,7 @@ import { pad2, formatRemaining, getColorPhase } from "./utils.js";
     clearParticleCanvas();
     // リサイズ後もカメラが枠外に出ないよう再クランプ
     setCamera(camX, camY);
+    updateZoomUI();
   }
 
   /**
