@@ -551,6 +551,68 @@ body {
   }
 }
 
+/* --- 全星完成時のお祝いポップアップ --- */
+.completion-popup {
+  position: fixed;
+  inset: 0;
+  z-index: 31;
+  display: grid;
+  place-items: center;
+  padding: 1rem;
+}
+
+.completion-popup[hidden] {
+  display: none;
+}
+
+.completion-popup__backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(2, 6, 15, 0.72);
+  backdrop-filter: blur(6px);
+}
+
+.completion-popup__card {
+  position: relative;
+  z-index: 1;
+  width: min(92vw, 360px);
+  padding: 1.2rem 1.1rem 1rem;
+  border-radius: 20px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  background: rgba(10, 16, 30, 0.96);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.45);
+  text-align: center;
+  animation: popup-pop 0.22s ease-out;
+}
+
+.completion-popup__close {
+  position: absolute;
+  top: 0.45rem;
+  right: 0.55rem;
+  width: 2rem;
+  height: 2rem;
+  border: none;
+  border-radius: 999px;
+  color: #eef4ff;
+  background: rgba(255, 255, 255, 0.08);
+  font-size: 1.25rem;
+  cursor: pointer;
+}
+
+.completion-popup__title {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: #fff;
+}
+
+.completion-popup__message {
+  margin: 0.7rem 0 0;
+  line-height: 1.8;
+  color: #dce9ff;
+}
+
 @media (max-width: 560px) {
   .panel {
     flex-direction: column;
@@ -574,5 +636,9 @@ body {
   .character-popup__image {
     width: 120px;
     height: 120px;
+  }
+
+  .completion-popup__card {
+    width: min(94vw, 320px);
   }
 }

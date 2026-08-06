@@ -35,6 +35,12 @@
   const WORLD_HEIGHT = 1536;
   /** この距離以上動いたらドラッグ扱い（クリックと区別） */
   const DRAG_THRESHOLD_PX = 8;
+  /** 全星完成時に表示するお祝い文言 */
+  const COMPLETION_POPUP = {
+    title: "おめでとう！",
+    message:
+      "10個すべての星を育て終えました。ここまで育ててくれて、本当にありがとう。あなたのやさしさで、この夜空はもっときらきらになったよ。",
+  };
 
   /**
    * 完成済みキャラクターをクリックしたときに表示するメッセージ。
@@ -140,6 +146,10 @@
     characterPopupImage: document.getElementById("characterPopupImage"),
     characterPopupTitle: document.getElementById("characterPopupTitle"),
     characterPopupMessage: document.getElementById("characterPopupMessage"),
+    completionPopup: document.getElementById("completionPopup"),
+    completionPopupClose: document.getElementById("completionPopupClose"),
+    completionPopupTitle: document.getElementById("completionPopupTitle"),
+    completionPopupMessage: document.getElementById("completionPopupMessage"),
   };
 
   const ctx = els.canvas.getContext("2d");
@@ -178,6 +188,8 @@
   let cheerLogIndex = 0;
   /** 直前に開いたキャラクターポップアップ */
   let activePopupStarId = null;
+  /** 全星完成ポップアップを1度だけ表示するためのフラグ */
+  let completionPopupShown = false;
 
   /** カメラ（ビューポート左上のワールド座標） */
   let camX = 0;
@@ -713,6 +725,22 @@
     els.characterPopup.setAttribute("aria-hidden", "true");
   }
 
+  /** 全星完成時のお祝いポップアップを開く */
+  function openCompletionPopup() {
+    if (completionPopupShown && !els.completionPopup.hidden) return;
+    completionPopupShown = true;
+    els.completionPopupTitle.textContent = COMPLETION_POPUP.title;
+    els.completionPopupMessage.textContent = COMPLETION_POPUP.message;
+    els.completionPopup.hidden = false;
+    els.completionPopup.setAttribute("aria-hidden", "false");
+  }
+
+  /** 全星完成時のお祝いポップアップを閉じる */
+  function closeCompletionPopup() {
+    els.completionPopup.hidden = true;
+    els.completionPopup.setAttribute("aria-hidden", "true");
+  }
+
   /** 「育成」ボタン。選択中の星の育成を開始する */
   function startGrowth() {
     if (celebrating || growingId || !selectedId) return;
@@ -784,9 +812,13 @@
       syncAllStars();
       updatePanel();
 
-      if (stars.every((s) => s.status === "completed")) {
+      const allCompleted = stars.every((s) => s.status === "completed");
+      if (allCompleted) {
         els.selectionLabel.textContent = "すべての星が完成しました！";
         appendLog("夜空がいっぱいに輝いている…", "milestone");
+        openCompletionPopup();
+      } else {
+        openCharacterPopup(star);
       }
     }, CELEBRATE_MS);
   }
@@ -992,9 +1024,17 @@
         closeCharacterPopup();
       }
     });
+    els.completionPopupClose.addEventListener("click", closeCompletionPopup);
+    els.completionPopup.addEventListener("click", (event) => {
+      if (event.target?.dataset?.popupClose === "true") {
+        closeCompletionPopup();
+      }
+    });
     window.addEventListener("keydown", (event) => {
       if (event.key === "Escape" && !els.characterPopup.hidden) {
         closeCharacterPopup();
+      } else if (event.key === "Escape" && !els.completionPopup.hidden) {
+        closeCompletionPopup();
       }
     });
     window.addEventListener("resize", resizeCanvas);

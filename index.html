@@ -87,6 +87,29 @@
           <p id="characterPopupMessage" class="character-popup__message"></p>
         </section>
       </div>
+
+      <!-- 全ての星を育て終えたときのお祝いポップアップ -->
+      <div id="completionPopup" class="completion-popup" hidden aria-hidden="true">
+        <div class="completion-popup__backdrop" data-popup-close="true"></div>
+        <section
+          class="completion-popup__card"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="completionPopupTitle"
+          aria-describedby="completionPopupMessage"
+        >
+          <button
+            id="completionPopupClose"
+            class="completion-popup__close"
+            type="button"
+            aria-label="ポップアップを閉じる"
+          >
+            ×
+          </button>
+          <p id="completionPopupTitle" class="completion-popup__title"></p>
+          <p id="completionPopupMessage" class="completion-popup__message"></p>
+        </section>
+      </div>
     </div>
 
     <script src="js/main.js"></script>
