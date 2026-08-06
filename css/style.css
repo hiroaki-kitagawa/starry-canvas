@@ -96,6 +96,49 @@ body {
   cursor: grabbing;
 }
 
+/* --- 拡大・縮小コントロール（左上固定） --- */
+.zoom-controls {
+  position: absolute;
+  top: 0.8rem;
+  left: 0.8rem;
+  z-index: 12;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.4rem 0.45rem;
+  border-radius: 999px;
+  background: rgba(10, 16, 30, 0.72);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  backdrop-filter: blur(10px);
+}
+
+.zoom-controls__btn {
+  width: 2rem;
+  height: 2rem;
+  border: none;
+  border-radius: 999px;
+  font-family: var(--font-display);
+  font-size: 1.2rem;
+  font-weight: 700;
+  color: #eef4ff;
+  background: rgba(255, 255, 255, 0.08);
+  cursor: pointer;
+}
+
+.zoom-controls__btn:hover {
+  background: rgba(255, 255, 255, 0.16);
+}
+
+.zoom-controls__level {
+  min-width: 3rem;
+  padding-right: 0.2rem;
+  font-family: var(--font-display);
+  font-size: 0.8rem;
+  color: #dce9ff;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
 /* 広大な背景ワールド。カメラ位置で translate する */
 .world {
   position: absolute;

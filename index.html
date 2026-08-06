@@ -23,6 +23,11 @@
       <main class="stage-wrap">
         <!-- 視点（ビューポート）。内部の world をドラッグでパンする -->
         <div id="sky" class="sky" aria-label="夜空ステージ" role="application">
+          <div class="zoom-controls" aria-label="拡大縮小コントロール">
+            <button id="zoomOut" class="zoom-controls__btn" type="button" aria-label="縮小">−</button>
+            <button id="zoomIn" class="zoom-controls__btn" type="button" aria-label="拡大">＋</button>
+            <span id="zoomLevel" class="zoom-controls__level" aria-live="polite">100%</span>
+          </div>
           <div id="world" class="world">
             <div class="world-bg" aria-hidden="true"></div>
             <div id="stars" class="stars"></div>

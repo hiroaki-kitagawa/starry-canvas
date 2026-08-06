@@ -35,6 +35,10 @@
   const WORLD_HEIGHT = 1536;
   /** この距離以上動いたらドラッグ扱い（クリックと区別） */
   const DRAG_THRESHOLD_PX = 8;
+  /** ズームの最小・最大・変更幅 */
+  const ZOOM_MIN = 0.75;
+  const ZOOM_MAX = 1.5;
+  const ZOOM_STEP = 0.25;
   /** 全星完成時に表示するお祝い文言 */
   const COMPLETION_POPUP = {
     title: "おめでとう！",
@@ -132,6 +136,9 @@
     stars: document.getElementById("stars"),
     sky: document.getElementById("sky"),
     world: document.getElementById("world"),
+    zoomIn: document.getElementById("zoomIn"),
+    zoomOut: document.getElementById("zoomOut"),
+    zoomLevel: document.getElementById("zoomLevel"),
     canvas: document.getElementById("particles"),
     selectionLabel: document.getElementById("selectionLabel"),
     progressTrack: document.getElementById("progressTrack"),
@@ -190,6 +197,8 @@
   let activePopupStarId = null;
   /** 全星完成ポップアップを1度だけ表示するためのフラグ */
   let completionPopupShown = false;
+  /** ズーム倍率 */
+  let zoom = 1;
 
   /** カメラ（ビューポート左上のワールド座標） */
   let camX = 0;
@@ -249,8 +258,8 @@
   /** カメラがワールド内に収まるようクランプする */
   function clampCamera(x, y) {
     const { width: vw, height: vh } = getViewportSize();
-    const maxX = Math.max(0, WORLD_WIDTH - vw);
-    const maxY = Math.max(0, WORLD_HEIGHT - vh);
+    const maxX = Math.max(0, WORLD_WIDTH - vw / zoom);
+    const maxY = Math.max(0, WORLD_HEIGHT - vh / zoom);
     return {
       x: Math.min(maxX, Math.max(0, x)),
       y: Math.min(maxY, Math.max(0, y)),
@@ -284,21 +293,44 @@
 
   /** world 要素へ translate を適用する（カメラ＝左上原点） */
   function applyWorldTransform() {
-    els.world.style.transform = `translate3d(${-camX}px, ${-camY}px, 0)`;
+    els.world.style.transform = `translate3d(${-camX}px, ${-camY}px, 0) scale(${zoom})`;
   }
 
   /** 初期表示：背景中央をプレイ画面の中心に合わせる */
   function centerCameraOnWorld() {
     const { width: vw, height: vh } = getViewportSize();
-    setCamera((WORLD_WIDTH - vw) / 2, (WORLD_HEIGHT - vh) / 2);
+    setCamera((WORLD_WIDTH - vw / zoom) / 2, (WORLD_HEIGHT - vh / zoom) / 2);
   }
 
   /** 星のワールド相対座標 → 画面（ビューポート）座標 */
   function worldToScreen(wxRatio, wyRatio) {
     return {
-      x: wxRatio * WORLD_WIDTH - camX,
-      y: wyRatio * WORLD_HEIGHT - camY,
+      x: (wxRatio * WORLD_WIDTH - camX) * zoom,
+      y: (wyRatio * WORLD_HEIGHT - camY) * zoom,
     };
+  }
+
+  /** ズーム表示を更新する */
+  function updateZoomUI() {
+    els.zoomLevel.textContent = `${Math.round(zoom * 100)}%`;
+  }
+
+  /** 指定座標を中心にズーム倍率を変更する */
+  function setZoom(nextZoom, anchorX, anchorY) {
+    const clampedZoom = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, nextZoom));
+    if (clampedZoom === zoom) return;
+
+    const { width: vw, height: vh } = getViewportSize();
+    const ax = Number.isFinite(anchorX) ? anchorX : vw / 2;
+    const ay = Number.isFinite(anchorY) ? anchorY : vh / 2;
+    const worldAnchorX = camX + ax / zoom;
+    const worldAnchorY = camY + ay / zoom;
+
+    zoom = clampedZoom;
+    setCamera(worldAnchorX - ax / zoom, worldAnchorY - ay / zoom);
+    clearAllParticles();
+    updateZoomUI();
+    updatePanel();
   }
 
   /** 背景ドラッグ開始 */
@@ -338,7 +370,7 @@
     if (!isDragging) return;
 
     // 指を右へ動かすと、背景は右へ追従（＝カメラは左へ）
-    setCamera(dragOriginCamX - dx, dragOriginCamY - dy);
+    setCamera(dragOriginCamX - dx / zoom, dragOriginCamY - dy / zoom);
   }
 
   /** 背景ドラッグ終了 */
@@ -1009,6 +1041,7 @@
     createStars();
     resizeCanvas();
     centerCameraOnWorld();
+    updateZoomUI();
     updatePanel();
     appendLog("背景をドラッグして、散らばる星を探そう", "");
     appendLog("星を選んで育成ボタンを押してみよう", "");
@@ -1018,6 +1051,16 @@
     els.sky.addEventListener("pointermove", onPanPointerMove);
     els.sky.addEventListener("pointerup", onPanPointerUp);
     els.sky.addEventListener("pointercancel", onPanPointerUp);
+    els.zoomIn.addEventListener("pointerdown", (event) => event.stopPropagation());
+    els.zoomOut.addEventListener("pointerdown", (event) => event.stopPropagation());
+    els.zoomIn.addEventListener("click", (event) => {
+      event.stopPropagation();
+      setZoom(zoom + ZOOM_STEP);
+    });
+    els.zoomOut.addEventListener("click", (event) => {
+      event.stopPropagation();
+      setZoom(zoom - ZOOM_STEP);
+    });
     els.characterPopupClose.addEventListener("click", closeCharacterPopup);
     els.characterPopup.addEventListener("click", (event) => {
       if (event.target?.dataset?.popupClose === "true") {
