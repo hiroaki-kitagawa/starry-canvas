@@ -286,9 +286,10 @@
     camY = clamped.y;
 
     // 視点固定の粒子は、ワールドが動いた分だけ逆方向へずらす
+    // 画面移動量はズーム倍率分だけ大きくなる
     for (const p of particles) {
-      p.x -= dx;
-      p.y -= dy;
+      p.x -= dx * zoom;
+      p.y -= dy * zoom;
     }
 
     applyWorldTransform();
@@ -296,7 +297,7 @@
 
   /** world 要素へ translate を適用する（カメラ＝左上原点） */
   function applyWorldTransform() {
-    els.world.style.transform = `translate3d(${-camX}px, ${-camY}px, 0) scale(${zoom})`;
+    els.world.style.transform = `translate3d(${-camX * zoom}px, ${-camY * zoom}px, 0) scale(${zoom})`;
     if (activePopupStarId) {
       const star = findStar(activePopupStarId);
       if (star) updateCharacterPopupPosition(star);
@@ -910,7 +911,7 @@
   /** 完成した星に視点を寄せて、少しズームする */
   function focusOnCompletedStar(star) {
     const { width: vw, height: vh } = getViewportSize();
-    zoom = Math.min(ZOOM_MAX, 1.35);
+    zoom = Math.min(ZOOM_MAX, 1.5);
     setCamera(star.x * WORLD_WIDTH - vw / (2 * zoom), star.y * WORLD_HEIGHT - vh / (2 * zoom));
     clearAllParticles();
     updateZoomUI();
