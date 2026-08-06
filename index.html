@@ -63,6 +63,30 @@
       <div id="celebrateBanner" class="celebrate-banner" hidden>
         <p class="celebrate-text">完成！</p>
       </div>
+
+      <!-- 完成済みキャラクターをクリックしたときの詳細ポップアップ -->
+      <div id="characterPopup" class="character-popup" hidden aria-hidden="true">
+        <div class="character-popup__backdrop" data-popup-close="true"></div>
+        <section
+          class="character-popup__card"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="characterPopupTitle"
+          aria-describedby="characterPopupMessage"
+        >
+          <button
+            id="characterPopupClose"
+            class="character-popup__close"
+            type="button"
+            aria-label="ポップアップを閉じる"
+          >
+            ×
+          </button>
+          <img id="characterPopupImage" class="character-popup__image" alt="" />
+          <p id="characterPopupTitle" class="character-popup__title"></p>
+          <p id="characterPopupMessage" class="character-popup__message"></p>
+        </section>
+      </div>
     </div>
 
     <script src="js/main.js"></script>

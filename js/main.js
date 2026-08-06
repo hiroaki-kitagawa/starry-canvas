@@ -36,6 +36,53 @@
   /** この距離以上動いたらドラッグ扱い（クリックと区別） */
   const DRAG_THRESHOLD_PX = 8;
 
+  /**
+   * 完成済みキャラクターをクリックしたときに表示するメッセージ。
+   * すべて「育ててくれてありがとう」「おめでとう」を軸にした文面。
+   */
+  const CHARACTER_MESSAGES = [
+    {
+      title: "星 01 のキャラクター",
+      message: "育ててくれてありがとう。ここまで見つけてくれて、本当にうれしいよ。おめでとう、きみのおかげで立派になれたんだ。",
+    },
+    {
+      title: "星 02 のキャラクター",
+      message: "おめでとう！ たくさん応援してくれてありがとう。やさしい手で育ててもらえて、わたしはとても幸せだよ。",
+    },
+    {
+      title: "星 03 のキャラクター",
+      message: "育ててくれてありがとう。毎日少しずつ大きくなるのを見守ってもらえて、すごく心強かったよ。",
+    },
+    {
+      title: "星 04 のキャラクター",
+      message: "おめでとう！ きみがあきらめずに育ててくれたから、ここまで来られたんだ。ありがとう、すてきな時間だったね。",
+    },
+    {
+      title: "星 05 のキャラクター",
+      message: "育ててくれてありがとう。見つけてもらったあの日から、ずっときみの声が励みになっていたよ。おめでとう！",
+    },
+    {
+      title: "星 06 のキャラクター",
+      message: "おめでとう、そしてありがとう。何度も見守ってくれたおかげで、こんなにかわいく育つことができたよ。",
+    },
+    {
+      title: "星 07 のキャラクター",
+      message: "育ててくれてありがとう。きみの応援があるたびに、うちの中にあたたかい光が増えていったんだ。",
+    },
+    {
+      title: "星 08 のキャラクター",
+      message: "おめでとう！ ここまで育ててくれて本当にありがとう。きみと一緒に成長できて、忘れられない思い出になったよ。",
+    },
+    {
+      title: "星 09 のキャラクター",
+      message: "育ててくれてありがとう。やさしく声をかけてもらえて、すごく安心してここまで来られたよ。おめでとう！",
+    },
+    {
+      title: "星 10 のキャラクター",
+      message: "おめでとう、そして本当にありがとう。最後まで育ててくれたきみのこと、ぼくはずっと忘れないよ。",
+    },
+  ];
+
   /** 進捗マイルストーン到達時に出す成長ログ文言 */
   const GROWTH_MILESTONES = [
     { id: "start", min: 0, text: "黄色い光がゆらぎはじめた…" },
@@ -88,6 +135,11 @@
     growBtn: document.getElementById("growBtn"),
     celebrateBanner: document.getElementById("celebrateBanner"),
     growthLog: document.getElementById("growthLog"),
+    characterPopup: document.getElementById("characterPopup"),
+    characterPopupClose: document.getElementById("characterPopupClose"),
+    characterPopupImage: document.getElementById("characterPopupImage"),
+    characterPopupTitle: document.getElementById("characterPopupTitle"),
+    characterPopupMessage: document.getElementById("characterPopupMessage"),
   };
 
   const ctx = els.canvas.getContext("2d");
@@ -124,6 +176,8 @@
   let lastCheerMs = 0;
   /** 応援ログ文言のローテーション用インデックス */
   let cheerLogIndex = 0;
+  /** 直前に開いたキャラクターポップアップ */
+  let activePopupStarId = null;
 
   /** カメラ（ビューポート左上のワールド座標） */
   let camX = 0;
@@ -453,7 +507,12 @@
     if (celebrating) return;
 
     const star = findStar(id);
-    if (!star || star.status === "completed") return;
+    if (!star) return;
+
+    if (star.status === "completed") {
+      openCharacterPopup(star);
+      return;
+    }
 
     // 育成中は対象星への応援タップのみ許可
     if (growingId) {
@@ -524,7 +583,8 @@
     if (star.status === "growing") el.classList.add("is-growing");
     if (star.status === "completed") {
       el.classList.add("is-completed");
-      el.disabled = true;
+      el.disabled = false;
+      el.setAttribute("aria-label", `星 ${star.index}（クリックでメッセージ）`);
       if (!el.querySelector("img")) {
         const img = document.createElement("img");
         img.alt = `星 ${star.index} のキャラクター`;
@@ -574,7 +634,7 @@
     }
 
     if (displayStar.status === "completed") {
-      els.selectionLabel.textContent = `星 ${displayStar.index} — 完成`;
+      els.selectionLabel.textContent = `星 ${displayStar.index} — 完成（クリックでメッセージ）`;
       setProgress(100);
       els.remainingTime.textContent = "残り 00:00";
       els.growBtn.disabled = true;
@@ -618,6 +678,40 @@
   // ============================================================
   // 育成・完成・祝福
   // ============================================================
+
+  /** 完成済みキャラクリック時のポップアップを開く */
+  function openCharacterPopup(star) {
+    if (activePopupStarId === star.id && !els.characterPopup.hidden) {
+      return;
+    }
+
+    const info = CHARACTER_MESSAGES[star.index - 1] || {
+      title: `星 ${pad2(star.index)} のキャラクター`,
+      message: "育ててくれてありがとう。おめでとう、きみのおかげでここまで来られたよ。",
+    };
+
+    activePopupStarId = star.id;
+    els.characterPopupTitle.textContent = info.title;
+    els.characterPopupMessage.textContent = info.message;
+    els.characterPopupImage.alt = info.title;
+
+    const img = star.el.querySelector("img");
+    if (img) {
+      els.characterPopupImage.src = img.src;
+    } else {
+      els.characterPopupImage.src = star.characterImageUrl;
+    }
+
+    els.characterPopup.hidden = false;
+    els.characterPopup.setAttribute("aria-hidden", "false");
+  }
+
+  /** ポップアップを閉じる */
+  function closeCharacterPopup() {
+    activePopupStarId = null;
+    els.characterPopup.hidden = true;
+    els.characterPopup.setAttribute("aria-hidden", "true");
+  }
 
   /** 「育成」ボタン。選択中の星の育成を開始する */
   function startGrowth() {
@@ -892,6 +986,17 @@
     els.sky.addEventListener("pointermove", onPanPointerMove);
     els.sky.addEventListener("pointerup", onPanPointerUp);
     els.sky.addEventListener("pointercancel", onPanPointerUp);
+    els.characterPopupClose.addEventListener("click", closeCharacterPopup);
+    els.characterPopup.addEventListener("click", (event) => {
+      if (event.target?.dataset?.popupClose === "true") {
+        closeCharacterPopup();
+      }
+    });
+    window.addEventListener("keydown", (event) => {
+      if (event.key === "Escape" && !els.characterPopup.hidden) {
+        closeCharacterPopup();
+      }
+    });
     window.addEventListener("resize", resizeCanvas);
   }
 
