@@ -32,6 +32,9 @@ import { pad2, formatRemaining, getColorPhase } from "./utils.js";
     zoomInput: document.getElementById("zoomInput"),
     zoomLevel: document.getElementById("zoomLevel"),
     canvas: document.getElementById("particles"),
+    telescope: document.getElementById("telescope"),
+    telescopeStar: document.getElementById("telescopeStar"),
+    telescopeImage: document.getElementById("telescopeImage"),
     selectionLabel: document.getElementById("selectionLabel"),
     progressTrack: document.getElementById("progressTrack"),
     progressFill: document.getElementById("progressFill"),
@@ -107,6 +110,12 @@ import { pad2, formatRemaining, getColorPhase } from "./utils.js";
   /** ドラッグ後の click を無視するためのフラグ */
   let suppressClick = false;
   let activePointerId = null;
+  /** 望遠鏡プレビュー中の星ID */
+  let telescopeStarId = null;
+
+  const TELESCOPE_SCOPE_SIZE = 172;
+  const TELESCOPE_OFFSET_X = 106;
+  const TELESCOPE_OFFSET_Y = -86;
 
   /** @type {Array<{
    *   x: number, y: number, vx: number, vy: number,
@@ -245,6 +254,8 @@ import { pad2, formatRemaining, getColorPhase } from "./utils.js";
     if (celebrating) return;
     if (event.button != null && event.button !== 0) return;
 
+    closeTelescopePreview();
+
     isPointerDown = true;
     isDragging = false;
     suppressClick = false;
@@ -345,6 +356,82 @@ import { pad2, formatRemaining, getColorPhase } from "./utils.js";
     onPanPointerDown(event);
   }
 
+  /** マウス利用時のみ望遠鏡プレビューを表示する */
+  function canUseTelescope(event) {
+    if (!window.matchMedia("(hover: hover) and (pointer: fine)").matches) return false;
+    if (!event || event.pointerType === "mouse") return true;
+    return false;
+  }
+
+  /** 望遠鏡の位置をカーソル付近へ配置（端でははみ出し防止） */
+  function updateTelescopePosition(clientX, clientY) {
+    const rect = els.sky.getBoundingClientRect();
+    const radius = TELESCOPE_SCOPE_SIZE / 2;
+    const localX = clientX - rect.left;
+    const localY = clientY - rect.top;
+    const x = Math.min(rect.width - radius, Math.max(radius, localX + TELESCOPE_OFFSET_X));
+    const y = Math.min(rect.height - radius, Math.max(radius, localY + TELESCOPE_OFFSET_Y));
+    const scope = els.telescope.firstElementChild;
+    if (!scope) return;
+    scope.style.left = `${x}px`;
+    scope.style.top = `${y}px`;
+  }
+
+  /** 望遠鏡内の表示を星状態に合わせる */
+  function renderTelescopeContent(star) {
+    if (!star) return;
+
+    const completed = star.status === "completed";
+    els.telescope.classList.toggle("is-completed", completed);
+
+    if (!completed) {
+      els.telescopeStar.className = `telescope__star phase-${star.colorPhase}`;
+      els.telescopeImage.removeAttribute("src");
+      els.telescopeImage.alt = "";
+      return;
+    }
+
+    const currentImg = star.el.querySelector("img");
+    els.telescopeImage.src = currentImg?.src || star.characterImageUrl;
+    els.telescopeImage.alt = `星 ${star.index} の拡大表示`;
+  }
+
+  /** 星ホバー開始時に望遠鏡プレビューを開く */
+  function openTelescopePreview(star, event) {
+    if (!star || !canUseTelescope(event)) return;
+    telescopeStarId = star.id;
+    renderTelescopeContent(star);
+    updateTelescopePosition(event.clientX, event.clientY);
+    els.telescope.hidden = false;
+    els.telescope.setAttribute("aria-hidden", "false");
+  }
+
+  /** 望遠鏡プレビューを閉じる */
+  function closeTelescopePreview() {
+    telescopeStarId = null;
+    els.telescope.hidden = true;
+    els.telescope.classList.remove("is-completed");
+    els.telescope.setAttribute("aria-hidden", "true");
+  }
+
+  function onStarPointerEnter(id, event) {
+    if (celebrating || suppressClick) return;
+    const star = findStar(id);
+    if (!star) return;
+    openTelescopePreview(star, event);
+  }
+
+  function onStarPointerMove(id, event) {
+    if (telescopeStarId !== id) return;
+    if (!canUseTelescope(event)) return;
+    updateTelescopePosition(event.clientX, event.clientY);
+  }
+
+  function onStarPointerLeave(id) {
+    if (telescopeStarId !== id) return;
+    closeTelescopePreview();
+  }
+
   // ============================================================
   // 成長ログ
   // ============================================================
@@ -425,6 +512,10 @@ import { pad2, formatRemaining, getColorPhase } from "./utils.js";
       btn.style.top = `${pos.y * 100}%`;
       btn.setAttribute("aria-label", `星 ${index}`);
       btn.addEventListener("click", () => onStarClick(id));
+      btn.addEventListener("pointerenter", (event) => onStarPointerEnter(id, event));
+      btn.addEventListener("pointermove", (event) => onStarPointerMove(id, event));
+      btn.addEventListener("pointerleave", () => onStarPointerLeave(id));
+      btn.addEventListener("pointercancel", () => onStarPointerLeave(id));
       els.stars.appendChild(btn);
 
       return {
@@ -556,6 +647,10 @@ import { pad2, formatRemaining, getColorPhase } from "./utils.js";
       // 育成中は他星を操作不可にする
       el.disabled = Boolean(growingId && growingId !== star.id);
       el.setAttribute("aria-label", `星 ${star.index}`);
+    }
+
+    if (telescopeStarId === star.id && !els.telescope.hidden) {
+      renderTelescopeContent(star);
     }
   }
 
