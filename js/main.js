@@ -197,6 +197,8 @@
   let activePopupStarId = null;
   /** 全星完成ポップアップを1度だけ表示するためのフラグ */
   let completionPopupShown = false;
+  /** 全星完成ポップアップを後で出すためのフラグ */
+  let pendingCompletionPopup = false;
   /** ズーム倍率 */
   let zoom = 1;
 
@@ -294,6 +296,10 @@
   /** world 要素へ translate を適用する（カメラ＝左上原点） */
   function applyWorldTransform() {
     els.world.style.transform = `translate3d(${-camX}px, ${-camY}px, 0) scale(${zoom})`;
+    if (activePopupStarId) {
+      const star = findStar(activePopupStarId);
+      if (star) updateCharacterPopupPosition(star);
+    }
   }
 
   /** 初期表示：背景中央をプレイ画面の中心に合わせる */
@@ -331,6 +337,10 @@
     clearAllParticles();
     updateZoomUI();
     updatePanel();
+    if (activePopupStarId) {
+      const star = findStar(activePopupStarId);
+      if (star) updateCharacterPopupPosition(star);
+    }
   }
 
   /** 背景ドラッグ開始 */
@@ -726,6 +736,7 @@
   /** 完成済みキャラクリック時のポップアップを開く */
   function openCharacterPopup(star) {
     if (activePopupStarId === star.id && !els.characterPopup.hidden) {
+      updateCharacterPopupPosition(star);
       return;
     }
 
@@ -748,6 +759,7 @@
 
     els.characterPopup.hidden = false;
     els.characterPopup.setAttribute("aria-hidden", "false");
+    updateCharacterPopupPosition(star);
   }
 
   /** ポップアップを閉じる */
@@ -755,6 +767,28 @@
     activePopupStarId = null;
     els.characterPopup.hidden = true;
     els.characterPopup.setAttribute("aria-hidden", "true");
+    if (pendingCompletionPopup && stars.every((s) => s.status === "completed")) {
+      pendingCompletionPopup = false;
+      openCompletionPopup();
+    }
+  }
+
+  /**
+   * 完成キャラクターの吹き出し位置を、キャラクターの画面座標へ合わせる。
+   * 画面中央寄りに出しつつ、端で切れにくいように少しクランプする。
+   */
+  function updateCharacterPopupPosition(star) {
+    if (!star || els.characterPopup.hidden) return;
+
+    const screen = worldToScreen(star.x, star.y);
+    const { width: vw, height: vh } = getViewportSize();
+    const left = Math.min(vw - 24, Math.max(24, screen.x));
+    const top = Math.min(vh - 32, Math.max(44, screen.y - 24));
+
+    const card = els.characterPopup.querySelector(".character-popup__card");
+    if (!card) return;
+    card.style.left = `${left}px`;
+    card.style.top = `${top}px`;
   }
 
   /** 全星完成時のお祝いポップアップを開く */
@@ -848,11 +882,24 @@
       if (allCompleted) {
         els.selectionLabel.textContent = "すべての星が完成しました！";
         appendLog("夜空がいっぱいに輝いている…", "milestone");
-        openCompletionPopup();
+        focusOnCompletedStar(star);
+        openCharacterPopup(star);
+        pendingCompletionPopup = true;
       } else {
+        focusOnCompletedStar(star);
         openCharacterPopup(star);
       }
     }, CELEBRATE_MS);
+  }
+
+  /** 完成した星に視点を寄せて、少しズームする */
+  function focusOnCompletedStar(star) {
+    const { width: vw, height: vh } = getViewportSize();
+    zoom = Math.min(ZOOM_MAX, 1.35);
+    setCamera(star.x * WORLD_WIDTH - vw / (2 * zoom), star.y * WORLD_HEIGHT - vh / (2 * zoom));
+    clearAllParticles();
+    updateZoomUI();
+    updatePanel();
   }
 
   // ============================================================
