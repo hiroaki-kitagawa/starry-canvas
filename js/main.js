@@ -138,6 +138,7 @@
     world: document.getElementById("world"),
     zoomIn: document.getElementById("zoomIn"),
     zoomOut: document.getElementById("zoomOut"),
+    zoomInput: document.getElementById("zoomInput"),
     zoomLevel: document.getElementById("zoomLevel"),
     canvas: document.getElementById("particles"),
     selectionLabel: document.getElementById("selectionLabel"),
@@ -319,6 +320,20 @@
   /** ズーム表示を更新する */
   function updateZoomUI() {
     els.zoomLevel.textContent = `${Math.round(zoom * 100)}%`;
+    if (document.activeElement !== els.zoomInput) {
+      els.zoomInput.value = `${Math.round(zoom * 100)}`;
+    }
+  }
+
+  /** ズーム入力欄の値を反映する */
+  function applyZoomInputValue() {
+    const raw = Number(els.zoomInput.value);
+    if (!Number.isFinite(raw)) {
+      updateZoomUI();
+      return;
+    }
+
+    setZoom(raw / 100);
   }
 
   /** 指定座標を中心にズーム倍率を変更する */
@@ -1100,6 +1115,8 @@
     els.sky.addEventListener("pointercancel", onPanPointerUp);
     els.zoomIn.addEventListener("pointerdown", (event) => event.stopPropagation());
     els.zoomOut.addEventListener("pointerdown", (event) => event.stopPropagation());
+    els.zoomInput.addEventListener("pointerdown", (event) => event.stopPropagation());
+    els.zoomInput.parentElement?.addEventListener("pointerdown", (event) => event.stopPropagation());
     els.zoomIn.addEventListener("click", (event) => {
       event.stopPropagation();
       setZoom(zoom + ZOOM_STEP);
@@ -1107,6 +1124,14 @@
     els.zoomOut.addEventListener("click", (event) => {
       event.stopPropagation();
       setZoom(zoom - ZOOM_STEP);
+    });
+    els.zoomInput.addEventListener("change", applyZoomInputValue);
+    els.zoomInput.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") {
+        event.preventDefault();
+        applyZoomInputValue();
+        els.zoomInput.blur();
+      }
     });
     els.characterPopupClose.addEventListener("click", closeCharacterPopup);
     els.characterPopup.addEventListener("click", (event) => {

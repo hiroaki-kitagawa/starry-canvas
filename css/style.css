@@ -112,6 +112,47 @@ body {
   backdrop-filter: blur(10px);
 }
 
+.zoom-controls__field {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+  padding: 0 0.45rem 0 0.55rem;
+  height: 2rem;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.zoom-controls__input {
+  width: 3.2rem;
+  border: none;
+  background: transparent;
+  color: #eef4ff;
+  font-family: var(--font-display);
+  font-size: 0.85rem;
+  font-weight: 700;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  outline: none;
+}
+
+.zoom-controls__input::-webkit-outer-spin-button,
+.zoom-controls__input::-webkit-inner-spin-button {
+  margin: 0;
+  appearance: none;
+}
+
+.zoom-controls__input[type="number"] {
+  appearance: textfield;
+  -moz-appearance: textfield;
+}
+
+.zoom-controls__suffix {
+  font-family: var(--font-display);
+  font-size: 0.8rem;
+  color: #dce9ff;
+}
+
 .zoom-controls__btn {
   width: 2rem;
   height: 2rem;
