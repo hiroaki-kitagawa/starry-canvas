@@ -1029,6 +1029,28 @@ import { pad2, formatRemaining, getColorPhase } from "./utils.js";
       }
     });
     window.addEventListener("keydown", (event) => {
+      const target = event.target;
+      const isTypingTarget =
+        target instanceof HTMLElement &&
+        (target.tagName === "INPUT" ||
+          target.tagName === "TEXTAREA" ||
+          target.tagName === "SELECT" ||
+          target.isContentEditable);
+
+      if (!isTypingTarget && !event.altKey && !event.ctrlKey && !event.metaKey) {
+        if (event.key === "ArrowLeft" || event.key === "ArrowDown") {
+          event.preventDefault();
+          setZoom(zoom - ZOOM_STEP);
+          return;
+        }
+
+        if (event.key === "ArrowRight" || event.key === "ArrowUp") {
+          event.preventDefault();
+          setZoom(zoom + ZOOM_STEP);
+          return;
+        }
+      }
+
       if (event.key === "Escape" && !els.characterPopup.hidden) {
         closeCharacterPopup();
       } else if (event.key === "Escape" && !els.completionPopup.hidden) {
