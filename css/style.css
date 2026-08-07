@@ -976,14 +976,25 @@ body {
 .completion-popup__card {
   position: relative;
   z-index: 1;
-  width: min(92vw, 360px);
+  width: min(92vw, 520px);
+  max-height: calc(100dvh - 2rem);
   padding: 1.2rem 1.1rem 1rem;
   border-radius: 20px;
   border: 1px solid rgba(255, 255, 255, 0.16);
   background: rgba(10, 16, 30, 0.96);
   box-shadow: 0 20px 60px rgba(0, 0, 0, 0.45);
   text-align: center;
+  overflow-y: auto;
   animation: popup-pop 0.22s ease-out;
+}
+
+.completion-popup__image {
+  display: block;
+  width: 100%;
+  max-height: min(48vh, 360px);
+  margin: 0 0 0.9rem;
+  border-radius: 14px;
+  object-fit: contain;
 }
 
 .completion-popup__close {
