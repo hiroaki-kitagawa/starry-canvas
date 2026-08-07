@@ -127,10 +127,9 @@ import { pad2, formatRemaining, getColorPhase } from "./utils.js";
   let tutorialStarId = null;
   let tutorialTargetEl = null;
   let tutorialPreviewApplied = false;
+  let lastModalFocus = null;
+  let viewportResizeFrame = null;
 
-  const TELESCOPE_SCOPE_SIZE = 344;
-  const TELESCOPE_OFFSET_X = 212;
-  const TELESCOPE_OFFSET_Y = -172;
   const GROW_BTN_OFFSET_Y = 34;
   const GROW_BTN_EDGE_PAD = 12;
 
@@ -516,14 +515,19 @@ import { pad2, formatRemaining, getColorPhase } from "./utils.js";
     if (!rect) return;
 
     const bubble = els.tutorialBubble;
+    const compactTouchLayout = window.matchMedia("(max-width: 599px), (pointer: coarse)").matches;
     bubble.classList.remove("is-top", "is-bottom");
-    bubble.classList.add(step.placement === "bottom" ? "is-bottom" : "is-top");
+    bubble.classList.add(
+      compactTouchLayout ? "is-bottom" : step.placement === "bottom" ? "is-bottom" : "is-top",
+    );
 
     const bubbleWidth = Math.min(window.innerWidth * 0.92, 360);
     const bubbleHeight = bubble.offsetHeight || 180;
     const centerX = rect.left + rect.width / 2;
     const desiredY =
-      step.placement === "bottom"
+      compactTouchLayout
+        ? window.innerHeight / 2
+        : step.placement === "bottom"
         ? rect.bottom + 16 + bubbleHeight / 2
         : rect.top - 16 - bubbleHeight / 2;
 
@@ -560,8 +564,13 @@ import { pad2, formatRemaining, getColorPhase } from "./utils.js";
       tutorialTargetEl.classList.add("tutorial-target");
     }
 
-    els.tutorialTitle.textContent = step.title;
-    els.tutorialMessage.textContent = step.message;
+    const compactTouchLayout = window.matchMedia("(max-width: 599px), (pointer: coarse)").matches;
+    els.tutorialTitle.textContent =
+      step.target === "zoom" && compactTouchLayout ? "3. ＋・−で拡大・縮小しよう" : step.title;
+    els.tutorialMessage.textContent =
+      step.target === "zoom" && compactTouchLayout
+        ? "星が見つからないときは、左上の＋・−ボタンで見やすさを調整してみよう。"
+        : step.message;
     els.tutorialStepLabel.textContent = `${index + 1} / ${TUTORIAL_STEPS.length}`;
     els.tutorialNext.textContent = index === TUTORIAL_STEPS.length - 1 ? "はじめる" : "次へ";
 
@@ -606,13 +615,15 @@ import { pad2, formatRemaining, getColorPhase } from "./utils.js";
   /** 望遠鏡の位置をカーソル付近へ配置（端でははみ出し防止） */
   function updateTelescopePosition(clientX, clientY) {
     const rect = els.sky.getBoundingClientRect();
-    const radius = TELESCOPE_SCOPE_SIZE / 2;
-    const localX = clientX - rect.left;
-    const localY = clientY - rect.top;
-    const x = Math.min(rect.width - radius, Math.max(radius, localX + TELESCOPE_OFFSET_X));
-    const y = Math.min(rect.height - radius, Math.max(radius, localY + TELESCOPE_OFFSET_Y));
     const scope = els.telescope.firstElementChild;
     if (!scope) return;
+    const radius = (scope.getBoundingClientRect().width || 344) / 2;
+    const localX = clientX - rect.left;
+    const localY = clientY - rect.top;
+    const offsetX = radius + 40;
+    const offsetY = -radius;
+    const x = Math.min(rect.width - radius, Math.max(radius, localX + offsetX));
+    const y = Math.min(rect.height - radius, Math.max(radius, localY + offsetY));
     scope.style.left = `${x}px`;
     scope.style.top = `${y}px`;
   }
@@ -1001,6 +1012,9 @@ import { pad2, formatRemaining, getColorPhase } from "./utils.js";
 
     els.characterPopup.hidden = false;
     els.characterPopup.setAttribute("aria-hidden", "false");
+    lastModalFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    document.body.classList.add("has-modal");
+    window.requestAnimationFrame(() => els.characterPopupClose.focus());
   }
 
   /** ポップアップを閉じる */
@@ -1011,6 +1025,10 @@ import { pad2, formatRemaining, getColorPhase } from "./utils.js";
     if (pendingCompletionPopup && stars.every((s) => s.status === "completed")) {
       pendingCompletionPopup = false;
       openCompletionPopup();
+    } else {
+      document.body.classList.remove("has-modal");
+      lastModalFocus?.focus();
+      lastModalFocus = null;
     }
   }
 
@@ -1022,12 +1040,20 @@ import { pad2, formatRemaining, getColorPhase } from "./utils.js";
     els.completionPopupMessage.textContent = COMPLETION_POPUP.message;
     els.completionPopup.hidden = false;
     els.completionPopup.setAttribute("aria-hidden", "false");
+    if (!lastModalFocus) {
+      lastModalFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    }
+    document.body.classList.add("has-modal");
+    window.requestAnimationFrame(() => els.completionPopupClose.focus());
   }
 
   /** 全星完成時のお祝いポップアップを閉じる */
   function closeCompletionPopup() {
     els.completionPopup.hidden = true;
     els.completionPopup.setAttribute("aria-hidden", "true");
+    document.body.classList.remove("has-modal");
+    lastModalFocus?.focus();
+    lastModalFocus = null;
   }
 
   /** 一時デバッグ表示に必要な完成状態を即時作成する */
@@ -1039,6 +1065,8 @@ import { pad2, formatRemaining, getColorPhase } from "./utils.js";
     pendingCompletionPopup = false;
     completionPopupShown = false;
     activePopupStarId = null;
+    lastModalFocus = null;
+    document.body.classList.remove("has-modal");
     els.celebrateBanner.hidden = true;
     els.characterPopup.hidden = true;
     els.characterPopup.setAttribute("aria-hidden", "true");
@@ -1190,6 +1218,18 @@ import { pad2, formatRemaining, getColorPhase } from "./utils.js";
     // リサイズ後もカメラが枠外に出ないよう再クランプ
     setCamera(camX, camY);
     updateZoomUI();
+  }
+
+  /** 画面回転・ブラウザUI変化を含む表示領域の変更を1フレームにまとめて反映する */
+  function scheduleViewportLayout() {
+    if (viewportResizeFrame != null) cancelAnimationFrame(viewportResizeFrame);
+    viewportResizeFrame = requestAnimationFrame(() => {
+      viewportResizeFrame = null;
+      closeTelescopePreview();
+      layoutViewport();
+      resizeCanvas();
+      if (tutorialActive) layoutTutorialBubble();
+    });
   }
 
   /**
@@ -1422,6 +1462,16 @@ import { pad2, formatRemaining, getColorPhase } from "./utils.js";
 
       if (tutorialActive) return;
 
+      const characterPopupOpen = !els.characterPopup.hidden;
+      const completionPopupOpen = !els.completionPopup.hidden;
+      if (characterPopupOpen || completionPopupOpen) {
+        if (event.key === "Escape") {
+          if (characterPopupOpen) closeCharacterPopup();
+          else closeCompletionPopup();
+        }
+        return;
+      }
+
       const target = event.target;
       const isTypingTarget =
         target instanceof HTMLElement &&
@@ -1444,17 +1494,13 @@ import { pad2, formatRemaining, getColorPhase } from "./utils.js";
         }
       }
 
-      if (event.key === "Escape" && !els.characterPopup.hidden) {
-        closeCharacterPopup();
-      } else if (event.key === "Escape" && !els.completionPopup.hidden) {
-        closeCompletionPopup();
-      }
     });
-    window.addEventListener("resize", () => {
-      layoutViewport();
-      resizeCanvas();
-      if (tutorialActive) layoutTutorialBubble();
-    });
+    window.addEventListener("resize", scheduleViewportLayout);
+    window.visualViewport?.addEventListener("resize", scheduleViewportLayout);
+    if ("ResizeObserver" in window) {
+      const stageResizeObserver = new ResizeObserver(scheduleViewportLayout);
+      stageResizeObserver.observe(els.stageWrap);
+    }
 
     startTutorial();
   }
