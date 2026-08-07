@@ -899,7 +899,9 @@ body {
   position: fixed;
   inset: 0;
   z-index: 30;
-  display: block;
+  display: grid;
+  place-items: center;
+  padding: 1rem;
 }
 
 .character-popup[hidden] {
@@ -913,33 +915,23 @@ body {
 }
 
 .character-popup__card {
-  position: fixed;
+  position: relative;
   z-index: 1;
-  left: 0;
-  top: 0;
   width: min(92vw, 340px);
+  max-height: calc(100dvh - 2rem);
   padding: 1rem 1rem 0.95rem;
   border-radius: 18px;
   border: 1px solid rgba(255, 255, 255, 0.18);
   background: rgba(10, 16, 30, 0.98);
   box-shadow: 0 18px 48px rgba(0, 0, 0, 0.42);
   text-align: left;
+  overflow-y: auto;
   animation: popup-pop 0.22s ease-out;
-  transform: translate(-50%, -100%);
   pointer-events: auto;
 }
 
 .character-popup__card::after {
-  content: "";
-  position: absolute;
-  left: 50%;
-  bottom: -8px;
-  width: 16px;
-  height: 16px;
-  background: rgba(10, 16, 30, 0.98);
-  border-right: 1px solid rgba(255, 255, 255, 0.12);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.12);
-  transform: translateX(-50%) rotate(45deg);
+  content: none;
 }
 
 .character-popup__close {

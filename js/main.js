@@ -250,10 +250,6 @@ import { pad2, formatRemaining, getColorPhase } from "./utils.js";
     const offset = getWorldOffset();
     els.world.style.transform = `translate3d(${offset.x - camX * zoom}px, ${offset.y - camY * zoom}px, 0) scale(${zoom})`;
     updateGrowButtonAnchor();
-    if (activePopupStarId) {
-      const star = findStar(activePopupStarId);
-      if (star) updateCharacterPopupPosition(star);
-    }
   }
 
   /** 初期表示：背景中央をプレイ画面の中心に合わせる */
@@ -326,10 +322,6 @@ import { pad2, formatRemaining, getColorPhase } from "./utils.js";
     clearAllParticles();
     updateZoomUI();
     updatePanel();
-    if (activePopupStarId) {
-      const star = findStar(activePopupStarId);
-      if (star) updateCharacterPopupPosition(star);
-    }
   }
 
   /** 背景ドラッグ開始 */
@@ -987,7 +979,6 @@ import { pad2, formatRemaining, getColorPhase } from "./utils.js";
   /** 完成済みキャラクリック時のポップアップを開く */
   function openCharacterPopup(star) {
     if (activePopupStarId === star.id && !els.characterPopup.hidden) {
-      updateCharacterPopupPosition(star);
       return;
     }
 
@@ -1010,7 +1001,6 @@ import { pad2, formatRemaining, getColorPhase } from "./utils.js";
 
     els.characterPopup.hidden = false;
     els.characterPopup.setAttribute("aria-hidden", "false");
-    updateCharacterPopupPosition(star);
   }
 
   /** ポップアップを閉じる */
@@ -1022,24 +1012,6 @@ import { pad2, formatRemaining, getColorPhase } from "./utils.js";
       pendingCompletionPopup = false;
       openCompletionPopup();
     }
-  }
-
-  /**
-   * 完成キャラクターの吹き出し位置を、キャラクターの画面座標へ合わせる。
-   * 画面中央寄りに出しつつ、端で切れにくいように少しクランプする。
-   */
-  function updateCharacterPopupPosition(star) {
-    if (!star || els.characterPopup.hidden) return;
-
-    const screen = worldToScreen(star.x, star.y);
-    const { width: vw, height: vh } = getViewportSize();
-    const left = Math.min(vw - 24, Math.max(24, screen.x));
-    const top = Math.min(vh - 32, Math.max(44, screen.y - 24));
-
-    const card = els.characterPopup.querySelector(".character-popup__card");
-    if (!card) return;
-    card.style.left = `${left}px`;
-    card.style.top = `${top}px`;
   }
 
   /** 全星完成時のお祝いポップアップを開く */
