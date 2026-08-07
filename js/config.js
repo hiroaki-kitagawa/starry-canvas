@@ -3,41 +3,41 @@
 // ============================================================
 
 /** 夜空に配置する星の個数 */
-export const STAR_COUNT = 10;
+const STAR_COUNT = 10;
 /** 星1つあたりの育成時間（ミリ秒）。仕様どおり1分 */
-export const GROWTH_DURATION_MS = 60_000;
+const GROWTH_DURATION_MS = 60_000;
 /**
  * 進捗に応じた星の色フェーズ判定テーブル。
  * 大きい閾値から順に照合する。
  * 初期＝黄 / 25%＝青 / 50%＝赤 / 75%＝紫
  */
-export const COLOR_THRESHOLDS = [
+const COLOR_THRESHOLDS = [
   { min: 75, phase: "purple" },
   { min: 50, phase: "red" },
   { min: 25, phase: "blue" },
   { min: 0, phase: "initial" },
 ];
 /** 完成時の祝福バナー／操作ロックの長さ */
-export const CELEBRATE_MS = 2200;
+const CELEBRATE_MS = 2200;
 /** 応援タップ1回あたりの育成短縮量 */
-export const CHEER_BOOST_MS = 500;
+const CHEER_BOOST_MS = 500;
 /** 1回の育成で応援によって短縮できる合計上限 */
-export const CHEER_MAX_TOTAL_MS = 5_000;
+const CHEER_MAX_TOTAL_MS = 5_000;
 /** 応援タップの連打防止インターバル */
-export const CHEER_COOLDOWN_MS = 350;
+const CHEER_COOLDOWN_MS = 350;
 /** 成長ログに同時表示する最大件数 */
-export const LOG_MAX_ITEMS = 4;
+const LOG_MAX_ITEMS = 4;
 /** 背景ワールドのサイズ（background.png の実寸） */
-export const WORLD_WIDTH = 2752;
-export const WORLD_HEIGHT = 1536;
+const WORLD_WIDTH = 2752;
+const WORLD_HEIGHT = 1536;
 /** この距離以上動いたらドラッグ扱い（クリックと区別） */
-export const DRAG_THRESHOLD_PX = 8;
+const DRAG_THRESHOLD_PX = 8;
 /** ズームの最小・最大・変更幅 */
-export const ZOOM_MIN = 0.75;
-export const ZOOM_MAX = 1.5;
-export const ZOOM_STEP = 0.25;
+const ZOOM_MIN = 0.75;
+const ZOOM_MAX = 1.5;
+const ZOOM_STEP = 0.25;
 /** 全星完成時に表示するお祝い文言 */
-export const COMPLETION_POPUP = {
+const COMPLETION_POPUP = {
   title: "おめでとう！",
   message:
     "10個すべての星を育て終えました。ここまで育ててくれて、本当にありがとう。あなたのやさしさで、この夜空はもっときらきらになったよ。",
@@ -47,7 +47,7 @@ export const COMPLETION_POPUP = {
  * 完成済みキャラクターをクリックしたときに表示するメッセージ。
  * すべて「育ててくれてありがとう」「おめでとう」を軸にした文面。
  */
-export const CHARACTER_MESSAGES = [
+const CHARACTER_MESSAGES = [
   {
     title: "星 01 のキャラクター",
     message: "育ててくれてありがとう。ここまで見つけてくれて、本当にうれしいよ。おめでとう、きみのおかげで立派になれたんだ。",
@@ -91,7 +91,7 @@ export const CHARACTER_MESSAGES = [
 ];
 
 /** 進捗マイルストーン到達時に出す成長ログ文言 */
-export const GROWTH_MILESTONES = [
+const GROWTH_MILESTONES = [
   { id: "start", min: 0, text: "黄色い光がゆらぎはじめた…" },
   { id: "blue", min: 25, text: "青い輝きに変わった！" },
   { id: "red", min: 50, text: "熱い赤に色づいた！" },
@@ -100,7 +100,7 @@ export const GROWTH_MILESTONES = [
 ];
 
 /** 応援タップ時にログへ出す短文（順繰り） */
-export const CHEER_LOG_LINES = [
+const CHEER_LOG_LINES = [
   "きらっと応えてくれた！",
   "応援が届いたみたい…",
   "星が少し元気になった！",
@@ -112,7 +112,7 @@ export const CHEER_LOG_LINES = [
  * 育成星の配置（ワールド全体に散りばめる。相対 0〜1）。
  * 中央付近にも数個置き、初期視点から探し始められるようにする。
  */
-export const STAR_POSITIONS = [
+const STAR_POSITIONS = [
   { x: 0.46, y: 0.42 },
   { x: 0.54, y: 0.58 },
   { x: 0.22, y: 0.28 },

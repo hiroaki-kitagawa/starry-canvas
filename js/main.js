@@ -1,24 +1,3 @@
-import {
-  STAR_COUNT,
-  GROWTH_DURATION_MS,
-  CELEBRATE_MS,
-  CHEER_BOOST_MS,
-  CHEER_MAX_TOTAL_MS,
-  CHEER_COOLDOWN_MS,
-  LOG_MAX_ITEMS,
-  WORLD_WIDTH,
-  WORLD_HEIGHT,
-  DRAG_THRESHOLD_PX,
-  ZOOM_MAX,
-  ZOOM_STEP,
-  COMPLETION_POPUP,
-  CHARACTER_MESSAGES,
-  GROWTH_MILESTONES,
-  CHEER_LOG_LINES,
-  STAR_POSITIONS,
-} from "./config.js";
-import { pad2, formatRemaining, getColorPhase } from "./utils.js";
-
   // ============================================================
   // DOM参照・ゲーム状態
   // ============================================================
