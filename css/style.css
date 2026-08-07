@@ -1338,6 +1338,44 @@ input:focus-visible {
   }
 }
 
+/* スマートフォン横向きは高さより横幅を優先し、夜空を大きく表示する */
+@media (orientation: landscape) and (hover: none) and (pointer: coarse) {
+  html,
+  body {
+    height: auto;
+    min-height: 100%;
+  }
+
+  body {
+    overflow-x: hidden;
+    overflow-y: auto;
+  }
+
+  .app {
+    grid-template-rows: auto auto auto;
+    min-height: 100dvh;
+    height: auto;
+    max-height: none;
+  }
+
+  .stage-wrap {
+    width: 100%;
+    height: calc((100vw - 1rem) * 1536 / 2752 + 0.5rem);
+    padding: 0.25rem 0.5rem;
+  }
+
+  .sky {
+    border-radius: 12px;
+  }
+
+  .debug-panel {
+    position: static;
+    width: calc(100% - 1rem);
+    margin: 0.5rem;
+    transform: none;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
