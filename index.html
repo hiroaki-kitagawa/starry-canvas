@@ -23,6 +23,10 @@
       <main class="stage-wrap">
         <!-- 視点（ビューポート）。内部の world をドラッグでパンする -->
         <div id="sky" class="sky" aria-label="夜空ステージ" role="application">
+          <div class="zoom-key-guide" aria-label="カーソルキーによる拡大縮小の操作説明">
+            <span class="zoom-key-guide__label">カーソルキー</span>
+            <span>←・↓ 縮小 ／ →・↑ 拡大</span>
+          </div>
           <div class="zoom-controls" aria-label="拡大縮小コントロール">
             <button id="zoomOut" class="zoom-controls__btn" type="button" aria-label="縮小">−</button>
             <label class="zoom-controls__field" aria-label="拡大率を入力">

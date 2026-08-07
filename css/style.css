@@ -99,9 +99,33 @@ body {
 }
 
 /* --- 拡大・縮小コントロール（左上固定） --- */
-.zoom-controls {
+.zoom-key-guide {
   position: absolute;
   top: 0.8rem;
+  left: 0.8rem;
+  z-index: 12;
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.3rem 0.65rem;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  color: #dce9ff;
+  background: rgba(10, 16, 30, 0.72);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  backdrop-filter: blur(10px);
+  pointer-events: none;
+  white-space: nowrap;
+}
+
+.zoom-key-guide__label {
+  font-weight: 700;
+  color: #fff;
+}
+
+.zoom-controls {
+  position: absolute;
+  top: 3rem;
   left: 0.8rem;
   z-index: 12;
   display: flex;
