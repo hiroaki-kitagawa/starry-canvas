@@ -32,8 +32,6 @@ import { pad2, formatRemaining, getColorPhase } from "./utils.js";
     zoomOut: document.getElementById("zoomOut"),
     zoomInput: document.getElementById("zoomInput"),
     zoomLevel: document.getElementById("zoomLevel"),
-    debugSingleComplete: document.getElementById("debugSingleComplete"),
-    debugAllComplete: document.getElementById("debugAllComplete"),
     canvas: document.getElementById("particles"),
     telescope: document.getElementById("telescope"),
     telescopeStar: document.getElementById("telescopeStar"),
@@ -124,14 +122,18 @@ import { pad2, formatRemaining, getColorPhase } from "./utils.js";
   const touchPointers = new Map();
   let isPinching = false;
   let nativePinchActive = false;
-  let gesturePinchActive = false;
   let pinchStartDistance = 0;
   let pinchStartZoom = 1;
   let pinchWorldAnchorX = 0;
   let pinchWorldAnchorY = 0;
-  let gestureStartZoom = 1;
-  let gestureCenterX = 0;
-  let gestureCenterY = 0;
+  let nativeTouchTracking = false;
+  let nativeTouchDragging = false;
+  let nativeTouchAxis = null;
+  let touchPanStartX = 0;
+  let touchPanStartY = 0;
+  let touchPanOriginCamX = 0;
+  let touchPanOriginCamY = 0;
+  let touchPageOriginScrollY = 0;
   /** 望遠鏡プレビュー中の星ID */
   let telescopeStarId = null;
   let tutorialStepIndex = -1;
@@ -440,6 +442,7 @@ import { pad2, formatRemaining, getColorPhase } from "./utils.js";
   /** 夜空へのポインタ入力（背景パン開始） */
   function onSkyPointerDown(event) {
     if (tutorialActive) return;
+    if (event.pointerType === "touch" && "ontouchstart" in window) return;
     if (event.pointerType === "touch") {
       if (!touchPointers.has(event.pointerId) && touchPointers.size >= 2) return;
       touchPointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
@@ -548,73 +551,110 @@ import { pad2, formatRemaining, getColorPhase } from "./utils.js";
     return clientX >= rect.left && clientX <= rect.right && clientY >= rect.top && clientY <= rect.bottom;
   }
 
-  /** iOS・Android実機向けのTouch Eventsによるピンチ開始 */
+  /** iOS・Androidでは1本指移動と2本指ピンチをTouch Eventsで一元管理する */
   function onSkyTouchStart(event) {
-    if (tutorialActive || event.touches.length < 2) return;
+    if (tutorialActive || event.touches.length === 0) return;
     const points = getTouchEventPoints(event);
-    if (!nativePinchActive && !points.every((point) => isPointInsideSky(point.x, point.y))) return;
-    event.preventDefault();
-    nativePinchActive = true;
-    startPinchFromPoints(points);
+    const target = event.target instanceof Element ? event.target : null;
+    const isControl = target?.closest(".zoom-controls, .grow-btn");
+
+    if (!nativeTouchTracking) {
+      if (isControl || !points[0] || !isPointInsideSky(points[0].x, points[0].y)) return;
+      nativeTouchTracking = true;
+      nativeTouchDragging = false;
+      nativeTouchAxis = null;
+      suppressClick = false;
+      touchPanStartX = points[0].x;
+      touchPanStartY = points[0].y;
+      touchPanOriginCamX = camX;
+      touchPanOriginCamY = camY;
+      touchPageOriginScrollY = window.scrollY;
+    }
+
+    if (event.touches.length >= 2) {
+      event.preventDefault();
+      nativePinchActive = true;
+      nativeTouchDragging = false;
+      nativeTouchAxis = "pinch";
+      startPinchFromPoints(points);
+    }
   }
 
   function onSkyTouchMove(event) {
-    if (gesturePinchActive) return;
-    if (!nativePinchActive || event.touches.length < 2) return;
+    if (!nativeTouchTracking || event.touches.length === 0) return;
+    const points = getTouchEventPoints(event);
+
+    if (event.touches.length >= 2) {
+      event.preventDefault();
+      if (!nativePinchActive) {
+        nativePinchActive = true;
+        startPinchFromPoints(points);
+      } else {
+        updatePinchFromPoints(points);
+      }
+      suppressClick = true;
+      return;
+    }
+
+    if (nativePinchActive) return;
+    const dx = points[0].x - touchPanStartX;
+    const dy = points[0].y - touchPanStartY;
+    if (!nativeTouchDragging && Math.hypot(dx, dy) < DRAG_THRESHOLD_PX) return;
+
+    if (!nativeTouchAxis) {
+      const landscapeTouchLayout = window.matchMedia(
+        "(orientation: landscape) and (max-height: 600px)",
+      ).matches;
+      nativeTouchAxis = landscapeTouchLayout && Math.abs(dy) > Math.abs(dx) ? "page" : "sky";
+    }
+
+    if (nativeTouchAxis === "page") {
+      event.preventDefault();
+      suppressClick = true;
+      window.scrollTo({ top: touchPageOriginScrollY - dy, behavior: "auto" });
+      return;
+    }
+
     event.preventDefault();
-    updatePinchFromPoints(getTouchEventPoints(event));
+    nativeTouchDragging = true;
+    suppressClick = true;
+    els.sky.classList.add("is-dragging");
+    setCamera(touchPanOriginCamX - dx / zoom, touchPanOriginCamY - dy / zoom);
   }
 
   function onSkyTouchEnd(event) {
-    if (gesturePinchActive) return;
-    if (!nativePinchActive || event.touches.length >= 2) return;
-    nativePinchActive = false;
-    isPinching = false;
-    touchPointers.clear();
-    isPointerDown = false;
-    isDragging = false;
-    activePointerId = null;
-    suppressClick = true;
-    els.sky.classList.remove("is-dragging");
-  }
+    if (!nativeTouchTracking) return;
 
-  /** iPhone SafariのGesture Eventsを使うフォールバック */
-  function onSkyGestureStart(event) {
-    if (tutorialActive) return;
-    const rect = els.sky.getBoundingClientRect();
-    const hasCoordinates = Number.isFinite(event.clientX) && Number.isFinite(event.clientY);
-    const clientX = hasCoordinates ? event.clientX : rect.left + rect.width / 2;
-    const clientY = hasCoordinates ? event.clientY : rect.top + rect.height / 2;
-    const startedInSky = els.sky.contains(event.target) || (hasCoordinates && isPointInsideSky(clientX, clientY));
-    if (!startedInSky) return;
-    event.preventDefault();
-    nativePinchActive = true;
-    gesturePinchActive = true;
-    gestureStartZoom = zoom;
-    gestureCenterX = clientX;
-    gestureCenterY = clientY;
-    startPinchFromCenter(gestureCenterX, gestureCenterY);
-  }
+    if (event.touches.length >= 2) return;
+    if (event.touches.length === 1 && nativePinchActive) {
+      const touch = event.touches[0];
+      nativePinchActive = false;
+      isPinching = false;
+      nativeTouchAxis = "sky";
+      touchPanStartX = touch.clientX;
+      touchPanStartY = touch.clientY;
+      touchPanOriginCamX = camX;
+      touchPanOriginCamY = camY;
+      suppressClick = true;
+      return;
+    }
 
-  function onSkyGestureChange(event) {
-    if (!nativePinchActive) return;
-    event.preventDefault();
-    const clientX = Number.isFinite(event.clientX) ? event.clientX : gestureCenterX;
-    const clientY = Number.isFinite(event.clientY) ? event.clientY : gestureCenterY;
-    updatePinchFromCenter(clientX, clientY, gestureStartZoom * event.scale);
-  }
-
-  function onSkyGestureEnd(event) {
-    if (!gesturePinchActive) return;
-    event.preventDefault();
-    gesturePinchActive = false;
-    nativePinchActive = false;
-    isPinching = false;
-    touchPointers.clear();
-    suppressClick = true;
+    if (event.touches.length === 0) {
+      nativeTouchTracking = false;
+      nativeTouchDragging = false;
+      nativeTouchAxis = null;
+      nativePinchActive = false;
+      isPinching = false;
+      touchPointers.clear();
+      isPointerDown = false;
+      isDragging = false;
+      activePointerId = null;
+      els.sky.classList.remove("is-dragging");
+    }
   }
 
   function onSkyPointerMove(event) {
+    if (event.pointerType === "touch" && "ontouchstart" in window) return;
     if (nativePinchActive && event.pointerType === "touch") return;
     if (event.pointerType === "touch" && touchPointers.has(event.pointerId)) {
       if (updatePinchGesture(event)) return;
@@ -623,6 +663,7 @@ import { pad2, formatRemaining, getColorPhase } from "./utils.js";
   }
 
   function onSkyPointerUp(event) {
+    if (event.pointerType === "touch" && "ontouchstart" in window) return;
     if (nativePinchActive && event.pointerType === "touch") return;
     if (event.pointerType === "touch") {
       const wasPinching = isPinching;
@@ -1270,53 +1311,6 @@ import { pad2, formatRemaining, getColorPhase } from "./utils.js";
     lastModalFocus = null;
   }
 
-  /** 一時デバッグ表示に必要な完成状態を即時作成する */
-  function prepareCompletionDebugState(completedCount) {
-    closeTutorial();
-    growingId = null;
-    selectedId = null;
-    celebrating = false;
-    pendingCompletionPopup = false;
-    completionPopupShown = false;
-    activePopupStarId = null;
-    lastModalFocus = null;
-    document.body.classList.remove("has-modal");
-    els.celebrateBanner.hidden = true;
-    els.characterPopup.hidden = true;
-    els.characterPopup.setAttribute("aria-hidden", "true");
-    els.completionPopup.hidden = true;
-    els.completionPopup.setAttribute("aria-hidden", "true");
-    clearAllParticles();
-
-    for (const star of stars) {
-      const completed = star.index <= completedCount;
-      star.progress = completed ? 100 : 0;
-      star.status = completed ? "completed" : "idle";
-      star.colorPhase = completed ? "purple" : "initial";
-      star.loggedMilestones.clear();
-    }
-
-    syncAllStars();
-    updatePanel();
-  }
-
-  /** 「星育成完成後」のキャラクターメッセージを確認する */
-  function showSingleCompletionDebugScene() {
-    prepareCompletionDebugState(1);
-    const star = stars[0];
-    if (!star) return;
-    selectedId = star.id;
-    focusOnCompletedStar(star);
-    openCharacterPopup(star);
-  }
-
-  /** 「すべての星育成完成後」の最終メッセージを確認する */
-  function showAllCompletionDebugScene() {
-    prepareCompletionDebugState(stars.length);
-    els.selectionLabel.textContent = "すべての星が完成しました！";
-    openCompletionPopup();
-  }
-
   /** 「育成」ボタン。選択中の星の育成を開始する */
   function startGrowth() {
     if (tutorialActive) return;
@@ -1619,8 +1613,6 @@ import { pad2, formatRemaining, getColorPhase } from "./utils.js";
     appendLog("星を選んで育成ボタンを押してみよう", "");
 
     els.growBtn.addEventListener("click", startGrowth);
-    els.debugSingleComplete.addEventListener("click", showSingleCompletionDebugScene);
-    els.debugAllComplete.addEventListener("click", showAllCompletionDebugScene);
     els.sky.addEventListener("pointerdown", onSkyPointerDown);
     els.sky.addEventListener("pointermove", onSkyPointerMove);
     els.sky.addEventListener("pointerup", onSkyPointerUp);
@@ -1629,9 +1621,6 @@ import { pad2, formatRemaining, getColorPhase } from "./utils.js";
     document.addEventListener("touchmove", onSkyTouchMove, { passive: false, capture: true });
     document.addEventListener("touchend", onSkyTouchEnd, { passive: false, capture: true });
     document.addEventListener("touchcancel", onSkyTouchEnd, { passive: false, capture: true });
-    document.addEventListener("gesturestart", onSkyGestureStart, { passive: false, capture: true });
-    document.addEventListener("gesturechange", onSkyGestureChange, { passive: false, capture: true });
-    document.addEventListener("gestureend", onSkyGestureEnd, { passive: false, capture: true });
     els.zoomIn.addEventListener("pointerdown", (event) => event.stopPropagation());
     els.zoomOut.addEventListener("pointerdown", (event) => event.stopPropagation());
     els.zoomInput.addEventListener("pointerdown", (event) => event.stopPropagation());
