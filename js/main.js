@@ -120,6 +120,18 @@ import { pad2, formatRemaining, getColorPhase } from "./utils.js";
   /** ドラッグ後の click を無視するためのフラグ */
   let suppressClick = false;
   let activePointerId = null;
+  /** タッチ端末の2本指ピンチ操作 */
+  const touchPointers = new Map();
+  let isPinching = false;
+  let nativePinchActive = false;
+  let gesturePinchActive = false;
+  let pinchStartDistance = 0;
+  let pinchStartZoom = 1;
+  let pinchWorldAnchorX = 0;
+  let pinchWorldAnchorY = 0;
+  let gestureStartZoom = 1;
+  let gestureCenterX = 0;
+  let gestureCenterY = 0;
   /** 望遠鏡プレビュー中の星ID */
   let telescopeStarId = null;
   let tutorialStepIndex = -1;
@@ -428,7 +440,207 @@ import { pad2, formatRemaining, getColorPhase } from "./utils.js";
   /** 夜空へのポインタ入力（背景パン開始） */
   function onSkyPointerDown(event) {
     if (tutorialActive) return;
+    if (event.pointerType === "touch") {
+      if (!touchPointers.has(event.pointerId) && touchPointers.size >= 2) return;
+      touchPointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+      if (touchPointers.size >= 2) {
+        startPinchGesture();
+        return;
+      }
+    }
     onPanPointerDown(event);
+  }
+
+  function getPinchPoints() {
+    return [...touchPointers.values()].slice(0, 2);
+  }
+
+  /** 2本指になった時点の倍率・中心座標をピンチ操作の基準として保存する */
+  function startPinchGesture() {
+    const points = getPinchPoints();
+    if (points.length < 2) return;
+
+    startPinchFromPoints(points);
+  }
+
+  function startPinchFromPoints(points) {
+    if (points.length < 2) return;
+
+    const [a, b] = points;
+    startPinchFromCenter((a.x + b.x) / 2, (a.y + b.y) / 2);
+    pinchStartDistance = Math.max(1, Math.hypot(b.x - a.x, b.y - a.y));
+  }
+
+  function startPinchFromCenter(clientX, clientY) {
+    const rect = els.sky.getBoundingClientRect();
+    const midX = clientX - rect.left;
+    const midY = clientY - rect.top;
+    const offset = getWorldOffset();
+
+    isPinching = true;
+    isPointerDown = false;
+    isDragging = false;
+    activePointerId = null;
+    suppressClick = true;
+    pinchStartZoom = zoom;
+    pinchWorldAnchorX = camX + (midX - offset.x) / zoom;
+    pinchWorldAnchorY = camY + (midY - offset.y) / zoom;
+    els.sky.classList.remove("is-dragging");
+    clearAllParticles();
+
+    for (const pointerId of touchPointers.keys()) {
+      try {
+        els.sky.setPointerCapture(pointerId);
+      } catch (_) {
+        /* ignore */
+      }
+    }
+  }
+
+  /** ピンチ中は2本指の中点に同じワールド座標が留まるよう倍率とカメラを更新する */
+  function updatePinchGesture(event) {
+    touchPointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+    if (!isPinching || touchPointers.size < 2) return false;
+
+    event.preventDefault();
+    updatePinchFromPoints(getPinchPoints());
+    return true;
+  }
+
+  function updatePinchFromPoints(points) {
+    if (points.length < 2) return;
+
+    const [a, b] = points;
+    const distance = Math.max(1, Math.hypot(b.x - a.x, b.y - a.y));
+    updatePinchFromCenter(
+      (a.x + b.x) / 2,
+      (a.y + b.y) / 2,
+      pinchStartZoom * distance / pinchStartDistance,
+    );
+  }
+
+  function updatePinchFromCenter(clientX, clientY, requestedZoom) {
+    const minZoom = getFitZoom();
+    const nextZoom = Math.min(ZOOM_MAX, Math.max(minZoom, requestedZoom));
+    const rect = els.sky.getBoundingClientRect();
+    const midX = clientX - rect.left;
+    const midY = clientY - rect.top;
+
+    zoom = nextZoom;
+    const offset = getWorldOffset();
+    setCamera(
+      pinchWorldAnchorX - (midX - offset.x) / zoom,
+      pinchWorldAnchorY - (midY - offset.y) / zoom,
+    );
+    updateZoomUI();
+    updatePanel();
+  }
+
+  function getTouchEventPoints(event) {
+    return Array.from(event.touches).slice(0, 2).map((touch) => ({
+      x: touch.clientX,
+      y: touch.clientY,
+    }));
+  }
+
+  function isPointInsideSky(clientX, clientY) {
+    const rect = els.sky.getBoundingClientRect();
+    return clientX >= rect.left && clientX <= rect.right && clientY >= rect.top && clientY <= rect.bottom;
+  }
+
+  /** iOS・Android実機向けのTouch Eventsによるピンチ開始 */
+  function onSkyTouchStart(event) {
+    if (tutorialActive || event.touches.length < 2) return;
+    const points = getTouchEventPoints(event);
+    if (!nativePinchActive && !points.every((point) => isPointInsideSky(point.x, point.y))) return;
+    event.preventDefault();
+    nativePinchActive = true;
+    startPinchFromPoints(points);
+  }
+
+  function onSkyTouchMove(event) {
+    if (gesturePinchActive) return;
+    if (!nativePinchActive || event.touches.length < 2) return;
+    event.preventDefault();
+    updatePinchFromPoints(getTouchEventPoints(event));
+  }
+
+  function onSkyTouchEnd(event) {
+    if (gesturePinchActive) return;
+    if (!nativePinchActive || event.touches.length >= 2) return;
+    nativePinchActive = false;
+    isPinching = false;
+    touchPointers.clear();
+    isPointerDown = false;
+    isDragging = false;
+    activePointerId = null;
+    suppressClick = true;
+    els.sky.classList.remove("is-dragging");
+  }
+
+  /** iPhone SafariのGesture Eventsを使うフォールバック */
+  function onSkyGestureStart(event) {
+    if (tutorialActive) return;
+    const rect = els.sky.getBoundingClientRect();
+    const hasCoordinates = Number.isFinite(event.clientX) && Number.isFinite(event.clientY);
+    const clientX = hasCoordinates ? event.clientX : rect.left + rect.width / 2;
+    const clientY = hasCoordinates ? event.clientY : rect.top + rect.height / 2;
+    const startedInSky = els.sky.contains(event.target) || (hasCoordinates && isPointInsideSky(clientX, clientY));
+    if (!startedInSky) return;
+    event.preventDefault();
+    nativePinchActive = true;
+    gesturePinchActive = true;
+    gestureStartZoom = zoom;
+    gestureCenterX = clientX;
+    gestureCenterY = clientY;
+    startPinchFromCenter(gestureCenterX, gestureCenterY);
+  }
+
+  function onSkyGestureChange(event) {
+    if (!nativePinchActive) return;
+    event.preventDefault();
+    const clientX = Number.isFinite(event.clientX) ? event.clientX : gestureCenterX;
+    const clientY = Number.isFinite(event.clientY) ? event.clientY : gestureCenterY;
+    updatePinchFromCenter(clientX, clientY, gestureStartZoom * event.scale);
+  }
+
+  function onSkyGestureEnd(event) {
+    if (!gesturePinchActive) return;
+    event.preventDefault();
+    gesturePinchActive = false;
+    nativePinchActive = false;
+    isPinching = false;
+    touchPointers.clear();
+    suppressClick = true;
+  }
+
+  function onSkyPointerMove(event) {
+    if (nativePinchActive && event.pointerType === "touch") return;
+    if (event.pointerType === "touch" && touchPointers.has(event.pointerId)) {
+      if (updatePinchGesture(event)) return;
+    }
+    onPanPointerMove(event);
+  }
+
+  function onSkyPointerUp(event) {
+    if (nativePinchActive && event.pointerType === "touch") return;
+    if (event.pointerType === "touch") {
+      const wasPinching = isPinching;
+      touchPointers.delete(event.pointerId);
+      if (wasPinching) {
+        isPinching = touchPointers.size >= 2;
+        suppressClick = true;
+        try {
+          if (els.sky.hasPointerCapture?.(event.pointerId)) {
+            els.sky.releasePointerCapture(event.pointerId);
+          }
+        } catch (_) {
+          /* ignore */
+        }
+        return;
+      }
+    }
+    onPanPointerUp(event);
   }
 
   /** 選択中の星の真下へ育成ボタンを配置する */
@@ -566,10 +778,12 @@ import { pad2, formatRemaining, getColorPhase } from "./utils.js";
 
     const compactTouchLayout = window.matchMedia("(max-width: 599px), (pointer: coarse)").matches;
     els.tutorialTitle.textContent =
-      step.target === "zoom" && compactTouchLayout ? "3. ＋・−で拡大・縮小しよう" : step.title;
+      step.target === "zoom" && compactTouchLayout
+        ? "3. ピンチまたは＋・−で拡大・縮小しよう"
+        : step.title;
     els.tutorialMessage.textContent =
       step.target === "zoom" && compactTouchLayout
-        ? "星が見つからないときは、左上の＋・−ボタンで見やすさを調整してみよう。"
+        ? "画面を2本指で広げたり縮めたりできるよ。左上の＋・−ボタンでも調整できます。"
         : step.message;
     els.tutorialStepLabel.textContent = `${index + 1} / ${TUTORIAL_STEPS.length}`;
     els.tutorialNext.textContent = index === TUTORIAL_STEPS.length - 1 ? "はじめる" : "次へ";
@@ -1408,9 +1622,16 @@ import { pad2, formatRemaining, getColorPhase } from "./utils.js";
     els.debugSingleComplete.addEventListener("click", showSingleCompletionDebugScene);
     els.debugAllComplete.addEventListener("click", showAllCompletionDebugScene);
     els.sky.addEventListener("pointerdown", onSkyPointerDown);
-    els.sky.addEventListener("pointermove", onPanPointerMove);
-    els.sky.addEventListener("pointerup", onPanPointerUp);
-    els.sky.addEventListener("pointercancel", onPanPointerUp);
+    els.sky.addEventListener("pointermove", onSkyPointerMove);
+    els.sky.addEventListener("pointerup", onSkyPointerUp);
+    els.sky.addEventListener("pointercancel", onSkyPointerUp);
+    document.addEventListener("touchstart", onSkyTouchStart, { passive: false, capture: true });
+    document.addEventListener("touchmove", onSkyTouchMove, { passive: false, capture: true });
+    document.addEventListener("touchend", onSkyTouchEnd, { passive: false, capture: true });
+    document.addEventListener("touchcancel", onSkyTouchEnd, { passive: false, capture: true });
+    document.addEventListener("gesturestart", onSkyGestureStart, { passive: false, capture: true });
+    document.addEventListener("gesturechange", onSkyGestureChange, { passive: false, capture: true });
+    document.addEventListener("gestureend", onSkyGestureEnd, { passive: false, capture: true });
     els.zoomIn.addEventListener("pointerdown", (event) => event.stopPropagation());
     els.zoomOut.addEventListener("pointerdown", (event) => event.stopPropagation());
     els.zoomInput.addEventListener("pointerdown", (event) => event.stopPropagation());

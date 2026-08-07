@@ -114,7 +114,15 @@ input:focus-visible {
   border: 1px solid var(--panel-border);
   cursor: grab;
   touch-action: none;
+  -ms-touch-action: none;
+  overscroll-behavior: contain;
   user-select: none;
+}
+
+.sky .world,
+.sky .world * {
+  touch-action: none;
+  -ms-touch-action: none;
 }
 
 .sky.is-dragging {
