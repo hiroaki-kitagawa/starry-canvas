@@ -32,6 +32,8 @@ import { pad2, formatRemaining, getColorPhase } from "./utils.js";
     zoomOut: document.getElementById("zoomOut"),
     zoomInput: document.getElementById("zoomInput"),
     zoomLevel: document.getElementById("zoomLevel"),
+    debugSingleComplete: document.getElementById("debugSingleComplete"),
+    debugAllComplete: document.getElementById("debugAllComplete"),
     canvas: document.getElementById("particles"),
     telescope: document.getElementById("telescope"),
     telescopeStar: document.getElementById("telescopeStar"),
@@ -1056,6 +1058,51 @@ import { pad2, formatRemaining, getColorPhase } from "./utils.js";
     els.completionPopup.setAttribute("aria-hidden", "true");
   }
 
+  /** 一時デバッグ表示に必要な完成状態を即時作成する */
+  function prepareCompletionDebugState(completedCount) {
+    closeTutorial();
+    growingId = null;
+    selectedId = null;
+    celebrating = false;
+    pendingCompletionPopup = false;
+    completionPopupShown = false;
+    activePopupStarId = null;
+    els.celebrateBanner.hidden = true;
+    els.characterPopup.hidden = true;
+    els.characterPopup.setAttribute("aria-hidden", "true");
+    els.completionPopup.hidden = true;
+    els.completionPopup.setAttribute("aria-hidden", "true");
+    clearAllParticles();
+
+    for (const star of stars) {
+      const completed = star.index <= completedCount;
+      star.progress = completed ? 100 : 0;
+      star.status = completed ? "completed" : "idle";
+      star.colorPhase = completed ? "purple" : "initial";
+      star.loggedMilestones.clear();
+    }
+
+    syncAllStars();
+    updatePanel();
+  }
+
+  /** 「星育成完成後」のキャラクターメッセージを確認する */
+  function showSingleCompletionDebugScene() {
+    prepareCompletionDebugState(1);
+    const star = stars[0];
+    if (!star) return;
+    selectedId = star.id;
+    focusOnCompletedStar(star);
+    openCharacterPopup(star);
+  }
+
+  /** 「すべての星育成完成後」の最終メッセージを確認する */
+  function showAllCompletionDebugScene() {
+    prepareCompletionDebugState(stars.length);
+    els.selectionLabel.textContent = "すべての星が完成しました！";
+    openCompletionPopup();
+  }
+
   /** 「育成」ボタン。選択中の星の育成を開始する */
   function startGrowth() {
     if (tutorialActive) return;
@@ -1346,6 +1393,8 @@ import { pad2, formatRemaining, getColorPhase } from "./utils.js";
     appendLog("星を選んで育成ボタンを押してみよう", "");
 
     els.growBtn.addEventListener("click", startGrowth);
+    els.debugSingleComplete.addEventListener("click", showSingleCompletionDebugScene);
+    els.debugAllComplete.addEventListener("click", showAllCompletionDebugScene);
     els.sky.addEventListener("pointerdown", onSkyPointerDown);
     els.sky.addEventListener("pointermove", onPanPointerMove);
     els.sky.addEventListener("pointerup", onPanPointerUp);

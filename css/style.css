@@ -214,6 +214,44 @@ body {
   font-variant-numeric: tabular-nums;
 }
 
+/* --- 場面確認用（一時デバッグパネル） --- */
+.debug-panel {
+  position: fixed;
+  top: 0.75rem;
+  right: 0.75rem;
+  z-index: 40;
+  display: grid;
+  gap: 0.35rem;
+  width: min(13rem, calc(100vw - 1.5rem));
+  padding: 0.55rem;
+  border: 1px solid rgba(255, 210, 110, 0.5);
+  border-radius: 12px;
+  background: rgba(10, 16, 30, 0.92);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+}
+
+.debug-panel__title {
+  font-size: 0.7rem;
+  font-weight: 700;
+  color: #ffd978;
+}
+
+.debug-panel__button {
+  min-height: 2rem;
+  padding: 0.35rem 0.55rem;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 8px;
+  font-family: inherit;
+  font-size: 0.75rem;
+  color: #eef4ff;
+  background: rgba(255, 255, 255, 0.08);
+  cursor: pointer;
+}
+
+.debug-panel__button:hover {
+  background: rgba(255, 255, 255, 0.16);
+}
+
 /* 広大な背景ワールド。カメラ位置で translate する */
 .world {
   position: absolute;
