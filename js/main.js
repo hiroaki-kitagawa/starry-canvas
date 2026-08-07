@@ -24,6 +24,7 @@ import { pad2, formatRemaining, getColorPhase } from "./utils.js";
   // ============================================================
 
   const els = {
+    stageWrap: document.querySelector(".stage-wrap"),
     stars: document.getElementById("stars"),
     sky: document.getElementById("sky"),
     world: document.getElementById("world"),
@@ -185,6 +186,37 @@ import { pad2, formatRemaining, getColorPhase } from "./utils.js";
     };
   }
 
+  /** 利用可能な領域内で、表示枠をワールドと同じ縦横比の最大サイズにする */
+  function layoutViewport() {
+    const style = window.getComputedStyle(els.stageWrap);
+    const availableWidth =
+      els.stageWrap.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight);
+    const availableHeight =
+      els.stageWrap.clientHeight - parseFloat(style.paddingTop) - parseFloat(style.paddingBottom);
+
+    if (availableWidth <= 0 || availableHeight <= 0) return;
+
+    const worldAspectRatio = WORLD_WIDTH / WORLD_HEIGHT;
+    const availableAspectRatio = availableWidth / availableHeight;
+    const width =
+      availableAspectRatio > worldAspectRatio
+        ? availableHeight * worldAspectRatio
+        : availableWidth;
+    const height = width / worldAspectRatio;
+
+    els.sky.style.width = `${width}px`;
+    els.sky.style.height = `${height}px`;
+  }
+
+  /** ワールドが表示領域より小さい軸では、余白を均等にして中央へ配置する */
+  function getWorldOffset() {
+    const { width: vw, height: vh } = getViewportSize();
+    return {
+      x: Math.max(0, (vw - WORLD_WIDTH * zoom) / 2),
+      y: Math.max(0, (vh - WORLD_HEIGHT * zoom) / 2),
+    };
+  }
+
   /**
    * カメラ位置を反映する。
    * パン中にパーティクルがずれないよう、差分だけ粒子座標も動かす。
@@ -213,7 +245,8 @@ import { pad2, formatRemaining, getColorPhase } from "./utils.js";
 
   /** world 要素へ translate を適用する（カメラ＝左上原点） */
   function applyWorldTransform() {
-    els.world.style.transform = `translate3d(${-camX * zoom}px, ${-camY * zoom}px, 0) scale(${zoom})`;
+    const offset = getWorldOffset();
+    els.world.style.transform = `translate3d(${offset.x - camX * zoom}px, ${offset.y - camY * zoom}px, 0) scale(${zoom})`;
     updateGrowButtonAnchor();
     if (activePopupStarId) {
       const star = findStar(activePopupStarId);
@@ -229,9 +262,10 @@ import { pad2, formatRemaining, getColorPhase } from "./utils.js";
 
   /** 星のワールド相対座標 → 画面（ビューポート）座標 */
   function worldToScreen(wxRatio, wyRatio) {
+    const offset = getWorldOffset();
     return {
-      x: (wxRatio * WORLD_WIDTH - camX) * zoom,
-      y: (wyRatio * WORLD_HEIGHT - camY) * zoom,
+      x: offset.x + (wxRatio * WORLD_WIDTH - camX) * zoom,
+      y: offset.y + (wyRatio * WORLD_HEIGHT - camY) * zoom,
     };
   }
 
@@ -277,11 +311,16 @@ import { pad2, formatRemaining, getColorPhase } from "./utils.js";
     const { width: vw, height: vh } = getViewportSize();
     const ax = Number.isFinite(anchorX) ? anchorX : vw / 2;
     const ay = Number.isFinite(anchorY) ? anchorY : vh / 2;
-    const worldAnchorX = camX + ax / zoom;
-    const worldAnchorY = camY + ay / zoom;
+    const previousOffset = getWorldOffset();
+    const worldAnchorX = camX + (ax - previousOffset.x) / zoom;
+    const worldAnchorY = camY + (ay - previousOffset.y) / zoom;
 
     zoom = clampedZoom;
-    setCamera(worldAnchorX - ax / zoom, worldAnchorY - ay / zoom);
+    const nextOffset = getWorldOffset();
+    setCamera(
+      worldAnchorX - (ax - nextOffset.x) / zoom,
+      worldAnchorY - (ay - nextOffset.y) / zoom,
+    );
     clearAllParticles();
     updateZoomUI();
     updatePanel();
@@ -1298,6 +1337,7 @@ import { pad2, formatRemaining, getColorPhase } from "./utils.js";
     els.world.style.height = `${WORLD_HEIGHT}px`;
 
     createStars();
+    layoutViewport();
     resizeCanvas();
     centerCameraOnWorld();
     updateZoomUI();
@@ -1390,6 +1430,7 @@ import { pad2, formatRemaining, getColorPhase } from "./utils.js";
       }
     });
     window.addEventListener("resize", () => {
+      layoutViewport();
       resizeCanvas();
       if (tutorialActive) layoutTutorialBubble();
     });
